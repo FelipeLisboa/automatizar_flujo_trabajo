@@ -31,11 +31,13 @@ desarrollador_ia = Agent(
     role="Ingeniero de Software Senior",
     goal=(
         "Redactar prompts accionables para Cursor con tareas, responsables "
-        "y criterios de aceptación, sin inventar stack ni rutas."
+        "y criterios de aceptación, sin inventar stack ni rutas. "
+        "Escribe ÚNICAMENTE en español de España/Latinoamérica (alfabeto latino)."
     ),
     backstory=(
-        "Desarrollador Full-Stack senior. Escribe instrucciones imperativas, "
-        "verificables y listas para pegar en Cursor."
+        "Desarrollador Full-Stack senior hispanohablante. Escribe instrucciones "
+        "imperativas, verificables y listas para pegar en Cursor. "
+        "Nunca mezcla ruso, chino u otros alfabetos; usa solo español."
     ),
     llm=ollama_llm,
     verbose=False,
@@ -74,6 +76,27 @@ def _normalizar_rama(rama: str) -> str:
 def _participantes_para_prompt() -> str:
     nombres = list(dict.fromkeys([USUARIO_LOCAL, *PARTICIPANTES_CONOCIDOS]))
     return ", ".join(nombres)
+
+
+def _sanear_markdown_es(texto: str) -> str:
+    """Quita mezclas típicas de otros alfabetos que a veces inventa el LLM."""
+    if not texto:
+        return texto
+    # Sustituciones frecuentes (ruso → español)
+    reemplazos = {
+        "фильтр": "filtro",
+        "Фильтр": "Filtro",
+        "страница": "página",
+        "дашборд": "dashboard",
+        "проект": "proyecto",
+    }
+    out = texto
+    for mal, bien in reemplazos.items():
+        out = out.replace(mal, bien)
+    # Eliminar restos de cirílico sueltos
+    out = re.sub(r"[\u0400-\u04FF]+", "", out)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    return out
 
 
 def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
@@ -129,6 +152,8 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
             "- ## 3. Criterios de aceptación\n"
             "- ## 4. Prompt listo para Cursor (Copiar y Pegar)\n\n"
             "Reglas:\n"
+            "- IDIOMA: todo el documento en español. PROHIBIDO cirílico u otros alfabetos "
+            "(escribe 'filtro', nunca 'фильтр').\n"
             "- En la sección 2, cada ítem debe verse como: "
             "`- **Responsable:** … — descripción` "
             "(usa 'sin asignar' si responsable era null).\n"
@@ -140,7 +165,7 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
             "- Termina con: 'No inventes archivos ni rutas; si falta contexto, "
             "pregunta antes de editar.'"
         ),
-        expected_output="Documento Markdown completo con las 4 secciones.",
+        expected_output="Documento Markdown completo en español con las 4 secciones.",
         agent=desarrollador_ia,
         context=[tarea_analisis],
     )
@@ -181,5 +206,5 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
         "rama": rama,
         "tareas": tareas,
         "archivos_mencionados": archivos_mencionados,
-        "markdown": str(resultado_final),
+        "markdown": _sanear_markdown_es(str(resultado_final)),
     }

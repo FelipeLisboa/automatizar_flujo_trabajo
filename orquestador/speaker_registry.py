@@ -252,6 +252,32 @@ def reconocer_remoto(
     return None, sim, emb
 
 
+def _registrar_nombre_en_meta(
+    nombre: str,
+    *,
+    con_voz: bool,
+    citas: list[str] | None = None,
+    n_muestras: int | None = None,
+) -> None:
+    """Siempre deja el nombre en registry.json (con o sin embedding)."""
+    VOICES_DIR.mkdir(parents=True, exist_ok=True)
+    meta = _cargar_meta()
+    perfiles = meta.setdefault("perfiles", {})
+    prev = perfiles.get(nombre) or {}
+    perfiles[nombre] = {
+        "archivo": _ruta_embedding(nombre).name if con_voz else prev.get("archivo"),
+        "tiene_embedding": bool(con_voz or prev.get("tiene_embedding")),
+        "n_muestras": int(
+            n_muestras
+            if n_muestras is not None
+            else prev.get("n_muestras") or (1 if con_voz else 0)
+        ),
+        "actualizado": datetime.now().isoformat(timespec="seconds"),
+        "ultimas_citas": (citas or prev.get("ultimas_citas") or [])[:3],
+    }
+    _guardar_meta(meta)
+
+
 def enrolar_voz(
     nombre: str,
     audio_sys: np.ndarray | None,
@@ -262,16 +288,27 @@ def enrolar_voz(
     citas: list[str] | None = None,
 ) -> bool:
     """
-    Active learning: crea o actualiza el perfil con media ponderada.
-    n_muestras crece en cada reunión donde se confirma / auto-detecta a esa persona.
+    Active learning: registra el nombre siempre; guarda embedding si el modelo responde.
+    Retorna True si hay embedding nuevo/actualizado; False si solo quedó el nombre.
     """
-    if not USAR_RECONOCIMIENTO_VOZ or not nombre or _es_etiqueta_remota(nombre):
+    if not nombre or _es_etiqueta_remota(nombre):
+        return False
+
+    # Aunque falle la voz, el nombre entra a la biblioteca (sugerencias futuras)
+    if not USAR_RECONOCIMIENTO_VOZ:
+        _registrar_nombre_en_meta(nombre, con_voz=False, citas=citas)
+        print(f"      📝 Nombre guardado (sin voz; USAR_RECONOCIMIENTO_VOZ=false): {nombre}")
         return False
 
     if emb_nuevo is None:
         clip = _recortar_audio_speaker(audio_sys, segmentos, speaker_label, rate)
         emb_nuevo = _embedding_de_audio(clip, rate)
     if emb_nuevo is None:
+        _registrar_nombre_en_meta(nombre, con_voz=False, citas=citas)
+        print(
+            f"      📝 Nombre guardado sin huella de voz: {nombre}\n"
+            f"         (revisa HF_TOKEN y el modelo pyannote/embedding)"
+        )
         return False
 
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
@@ -284,9 +321,8 @@ def enrolar_voz(
     if path.exists() and n > 0:
         try:
             prev = np.load(path)
-            # Media acumulada: (n*prev + nuevo) / (n+1)
             emb = (prev * n + emb_nuevo) / (n + 1.0)
-            emb = emb / (np.linalg.norm(emb) + 1e-8)
+            emb = emb / (float(np.linalg.norm(emb)) + 1e-8)
         except Exception:
             emb = emb_nuevo
             n = 0
@@ -294,15 +330,8 @@ def enrolar_voz(
         emb = emb_nuevo
 
     n += 1
-    np.save(path, emb.astype(np.float32))
-
-    perfiles[nombre] = {
-        "archivo": path.name,
-        "n_muestras": n,
-        "actualizado": datetime.now().isoformat(timespec="seconds"),
-        "ultimas_citas": (citas or [])[:3],
-    }
-    _guardar_meta(meta)
+    np.save(path, np.asarray(emb, dtype=np.float32).reshape(-1))
+    _registrar_nombre_en_meta(nombre, con_voz=True, citas=citas, n_muestras=n)
     return True
 
 
@@ -321,6 +350,30 @@ def _resolver_nombre_entrada(entrada: str, sugerencias: list[str], fallback: str
     if not match:
         match = next((p for p in sugerencias if entrada.lower() in p.lower()), None)
     return match or entrada
+
+
+def _guardar_perfil_tras_nombrar(
+    nombre: str,
+    spk: str,
+    audio_sys: np.ndarray | None,
+    segmentos: list[dict],
+    rate: int,
+    emb,
+    citas: list[str],
+    perfiles: list[str],
+) -> list[str]:
+    es_nuevo = nombre not in perfiles
+    ok_voz = enrolar_voz(
+        nombre, audio_sys, segmentos, spk, rate, emb_nuevo=emb, citas=citas
+    )
+    if ok_voz:
+        print(
+            f"      💾 {'Nuevo perfil de voz' if es_nuevo else 'Perfil de voz actualizado'}: "
+            f"{nombre} → .voice_profiles/"
+        )
+    if es_nuevo and nombre not in perfiles:
+        perfiles.append(nombre)
+    return perfiles
 
 
 def identificar_remotos_interactivo(
@@ -394,7 +447,7 @@ def identificar_remotos_interactivo(
                 preview = citas[0] if len(citas[0]) <= 90 else citas[0][:87] + "…"
                 print(f"      «{preview}»")
             if enrolar_voz(sug, audio_sys, segmentos, spk, TARGET_RATE, emb_nuevo=emb, citas=citas):
-                print(f"      💾 Perfil reforzado: {sug}")
+                print(f"      💾 Perfil de voz reforzado: {sug} → .voice_profiles/")
             continue
 
         # --- Persona nueva o match dudoso: preguntar ---
@@ -431,16 +484,10 @@ def identificar_remotos_interactivo(
 
         if nombre != spk and not _es_etiqueta_remota(nombre):
             ya_asignados.add(nombre)
-            if enrolar_voz(
-                nombre, audio_sys, segmentos, spk, TARGET_RATE, emb_nuevo=emb, citas=citas
-            ):
-                es_nuevo = nombre not in perfiles
-                print(
-                    f"      💾 {'Nuevo perfil' if es_nuevo else 'Perfil actualizado'}: {nombre}"
-                )
-                if es_nuevo:
-                    perfiles.append(nombre)
-                    sugerencias = _sugerencias_lista()
+            perfiles = _guardar_perfil_tras_nombrar(
+                nombre, spk, audio_sys, segmentos, TARGET_RATE, emb, citas, perfiles
+            )
+            sugerencias = _sugerencias_lista()
 
     for s in segmentos:
         old = s.get("speaker")
