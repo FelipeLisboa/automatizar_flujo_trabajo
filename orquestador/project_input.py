@@ -7,18 +7,14 @@ import re
 from config import (
     ALIAS_PROYECTOS,
     CLAVE_ORQUESTADOR,
+    CLAVES_PROYECTOS_MENU,
     RUTAS_PROYECTOS,
     normalizar_clave,
     resolver_proyecto,
 )
 
-# Claves que el usuario puede elegir
-CLAVES_SELECCIONABLES = [
-    "vigo_web",
-    "vigo_api",
-    "pipelines",
-    "General",
-]
+# Menú dinámico según .env (PROYECTO_*)
+CLAVES_SELECCIONABLES = list(CLAVES_PROYECTOS_MENU)
 
 
 def _texto_norm(texto: str) -> str:
@@ -32,25 +28,35 @@ def _texto_norm(texto: str) -> str:
     )
 
 
-def detectar_menciones(texto: str) -> dict[str, bool]:
-    """Señales explícitas en la transcripción (VIGO / pipelines)."""
+def detectar_menciones(texto: str) -> dict[str, list[str]]:
+    """
+    Busca claves/aliases de proyectos mapeados en el texto.
+    Retorna {clave: [aliases_que_matchearon]}.
+    """
     t = _texto_norm(texto)
-    return {
-        "vigo": bool(
-            re.search(
-                r"\bvigo\b|\bdet[\s_\-]?minco\b|\bpce[\s_\-]?web\b|\bpcm[\s_\-]?api\b|"
-                r"\bvigo[_\s\-]?web\b|\bvigo[_\s\-]?api\b|\bvigo[_\s\-]?front\b|\bvigo[_\s\-]?back\b",
-                t,
-            )
-        ),
-        "vigo_api": bool(
-            re.search(
-                r"\bvigo[_\s\-]?api\b|\bvigo[_\s\-]?back\b|\bpcm[\s_\-]?api\b|\bbackend[\s]+vigo\b",
-                t,
-            )
-        ),
-        "pipelines": bool(re.search(r"\bpipelines?\b|\bcommon[_\s\-]?pipelines\b", t)),
-    }
+    hallados: dict[str, list[str]] = {}
+    # Probar aliases más largos primero (det_minco_pce_web antes que vigo)
+    candidatos: list[tuple[str, str]] = []
+    for alias, clave in ALIAS_PROYECTOS.items():
+        if clave == CLAVE_ORQUESTADOR or clave not in RUTAS_PROYECTOS:
+            continue
+        if clave == "general":
+            continue
+        candidatos.append((alias, clave))
+    for clave in RUTAS_PROYECTOS:
+        if clave != CLAVE_ORQUESTADOR:
+            candidatos.append((clave, clave))
+    candidatos.sort(key=lambda x: len(x[0]), reverse=True)
+
+    for alias, clave in candidatos:
+        alias_n = _texto_norm(alias).replace("_", " ")
+        # Palabra completa tolerando _ y espacios
+        patron = r"\b" + re.escape(alias_n).replace(r"\ ", r"[\s_\-]+") + r"\b"
+        if re.search(patron, t.replace("_", " ")):
+            hallados.setdefault(clave, [])
+            if alias not in hallados[clave]:
+                hallados[clave].append(alias)
+    return hallados
 
 
 def detectar_nombre_libre(texto: str) -> str | None:
@@ -62,7 +68,6 @@ def detectar_nombre_libre(texto: str) -> str | None:
         texto,
     )
     if not m:
-        # También captura minúsculas: "proyecto novatrack"
         m = re.search(
             r"\bproyecto\s+([A-Za-zÁÉÍÓÚáéíóúñ][A-Za-zÁÉÍÓÚáéíóúñ0-9_\-]{2,})",
             texto,
@@ -72,11 +77,11 @@ def detectar_nombre_libre(texto: str) -> str | None:
         return None
     nombre = m.group(1).strip().rstrip(".,;:")
     clave = normalizar_clave(nombre)
-    if clave in ("general", CLAVE_ORQUESTADOR, "vigo", "pipelines", "el", "la", "un", "este"):
+    if clave in ("general", CLAVE_ORQUESTADOR, "el", "la", "un", "este", "ese"):
         return None
     if clave in RUTAS_PROYECTOS or clave in ALIAS_PROYECTOS:
+        # Ya está mapeado: no es "libre"
         return None
-    # Capitalizar estilo marca si viene todo minúsculas
     if nombre.islower():
         nombre = nombre[0].upper() + nombre[1:]
     return nombre
@@ -85,27 +90,20 @@ def detectar_nombre_libre(texto: str) -> str | None:
 def inferir_proyecto_desde_texto(texto: str) -> tuple[str | None, str]:
     """
     Retorna (clave_o_None, motivo).
-    None → hay que preguntar al usuario (salvo auto-aceptar sugerencia del agente).
+    None → preguntar (salvo auto-aceptar sugerencia del agente / nombre libre).
     """
-    m = detectar_menciones(texto)
-
-    if m["pipelines"] and not m["vigo"]:
-        return "pipelines", "mencionado explícitamente (pipelines)"
-
-    if m["vigo_api"]:
-        return "vigo_api", "mencionado explícitamente (API VIGO)"
-
-    if m["vigo"]:
-        return "vigo_web", "mencionado explícitamente (VIGO)"
-
-    if m["pipelines"] and m["vigo"]:
-        return None, "conflicto: se mencionó VIGO y pipelines"
+    menciones = detectar_menciones(texto)
+    if len(menciones) == 1:
+        clave = next(iter(menciones))
+        return clave, f"mencionado explícitamente ({', '.join(menciones[clave][:3])})"
+    if len(menciones) > 1:
+        return None, f"conflicto: se mencionaron {', '.join(menciones.keys())}"
 
     libre = detectar_nombre_libre(texto)
     if libre:
         return libre, f"nombre libre mencionado en audio ({libre})"
 
-    return None, "no se detectó un proyecto mapeado (VIGO / pipelines) en el audio"
+    return None, "no se detectó un proyecto mapeado en el audio"
 
 
 def _limpiar_entrada_proyecto(entrada: str) -> str:

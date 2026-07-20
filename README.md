@@ -178,12 +178,26 @@ copy .env.example .env
 | `VOICE_MATCH_THRESHOLD` | `0.72` | Umbral para sugerir |
 | `VOICE_AUTO_THRESHOLD` | `0.78` | Umbral para auto-asignar |
 | `USE_PYANNOTE` | `true` | Separar varias voces remotas |
+| `PROYECTO_<clave>` | `PROYECTO_mi_app=C:\ruta\repo` | **Cualquier** proyecto mapeado (agrega/quita líneas) |
+| `ALIAS_PROYECTOS` | `vigo=vigo_web,api=vigo_api` | Sinónimos opcionales (coma) |
 | `HF_TOKEN` | `hf_...` | Token Hugging Face (secreto) |
-| `RUTA_VIGO_WEB` | ruta absoluta | Repo front VIGO |
-| `RUTA_VIGO_API` | ruta absoluta | Repo API VIGO |
-| `RUTA_PIPELINES` | ruta absoluta | Repo pipelines |
 
 Valores booleanos: `true` / `false` (también acepta `1`/`0`, `yes`/`no`).
+
+### Proyectos propios (cualquier máquina)
+
+En `.env` define **tus** repos con el formato `PROYECTO_<clave>=ruta`:
+
+```env
+PROYECTO_vigo_web=C:\Users\TU_USUARIO\...\DET_MINCO_PCE_Web
+PROYECTO_mi_crm=C:\Users\TU_USUARIO\Documents\repos\crm
+PROYECTO_nova=D:\codigo\NovaTrack
+```
+
+- La **clave** es lo que verás en el menú y en `docs/`.
+- Puedes agregar o borrar líneas libremente.
+- Opcional: `ALIAS_PROYECTOS=crm=mi_crm,novatrack=nova` para que el audio reconozca sinónimos.
+- Si mencionan un proyecto **no** mapeado (ej. “proyecto NovaTrack”), se guarda igual en `docs/NovaTrack/` sin Git de producto.
 
 Token HF: puedes ponerlo en `.env` **o** en la sesión:
 

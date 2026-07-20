@@ -83,43 +83,109 @@ CONFIRMAR_RESPONSABLES = _env_bool("CONFIRMAR_RESPONSABLES", True)
 
 CLAVE_ORQUESTADOR = "automatizar_flujo_trabajo"
 
-# Rutas de producto (opcionales; si vacías no se mapean)
-_ruta_vigo_web = _env("RUTA_VIGO_WEB")
-_ruta_vigo_api = _env("RUTA_VIGO_API")
-_ruta_pipelines = _env("RUTA_PIPELINES")
 
-RUTAS_PROYECTOS: dict[str, Path] = {CLAVE_ORQUESTADOR: BASE_DIR}
-if _ruta_vigo_web:
-    RUTAS_PROYECTOS["vigo_web"] = Path(_ruta_vigo_web)
-if _ruta_vigo_api:
-    RUTAS_PROYECTOS["vigo_api"] = Path(_ruta_vigo_api)
-if _ruta_pipelines:
-    RUTAS_PROYECTOS["pipelines"] = Path(_ruta_pipelines)
+def _cargar_rutas_proyectos() -> dict[str, Path]:
+    """
+    Proyectos custom desde .env. Cualquier persona puede agregar los suyos:
 
-# Alias reunión / agente / fonética Whisper → clave canónica
-ALIAS_PROYECTOS: dict[str, str] = {
-    "vigo": "vigo_web",
-    "vigó": "vigo_web",
-    "det_minco": "vigo_web",
-    "det_minco_pce_web": "vigo_web",
-    "det_minco_pce": "vigo_web",
-    "pce_web": "vigo_web",
-    "front_vigo": "vigo_web",
-    "frontend_vigo": "vigo_web",
-    "vigo_front": "vigo_web",
-    "web_vigo": "vigo_web",
-    "det_minco_pcm_api": "vigo_api",
-    "det_minco_pcm": "vigo_api",
-    "pcm_api": "vigo_api",
-    "back_vigo": "vigo_api",
-    "backend_vigo": "vigo_api",
-    "vigo_back": "vigo_api",
-    "api_vigo": "vigo_api",
-    "common_pipelines": "pipelines",
-    "pipeline": "pipelines",
-    "pipelines_common": "pipelines",
-    "general": CLAVE_ORQUESTADOR,
-}
+      PROYECTO_vigo_web=C:\\ruta\\al\\repo
+      PROYECTO_mi_app=C:\\otra\\ruta
+
+    Compatibilidad con nombres viejos:
+      RUTA_VIGO_WEB=...
+      RUTA_VIGO_API=...
+      RUTA_PIPELINES=...
+    """
+    rutas: dict[str, Path] = {CLAVE_ORQUESTADOR: BASE_DIR}
+
+    # Formato genérico: PROYECTO_<clave>=ruta
+    for key, value in os.environ.items():
+        if not key.startswith("PROYECTO_"):
+            continue
+        clave = key[len("PROYECTO_") :].strip().lower()
+        ruta = (value or "").strip().strip('"').strip("'")
+        if not clave or not ruta or clave in ("", CLAVE_ORQUESTADOR):
+            continue
+        if clave in ("general",):
+            continue
+        rutas[clave] = Path(ruta)
+
+    # Legacy (por si alguien aún usa RUTA_*)
+    legacy = {
+        "vigo_web": _env("RUTA_VIGO_WEB"),
+        "vigo_api": _env("RUTA_VIGO_API"),
+        "pipelines": _env("RUTA_PIPELINES"),
+    }
+    for clave, ruta in legacy.items():
+        if ruta and clave not in rutas:
+            rutas[clave] = Path(ruta)
+
+    return rutas
+
+
+def _cargar_aliases(rutas: dict[str, Path]) -> dict[str, str]:
+    """
+    Aliases desde .env:
+
+      ALIAS_PROYECTOS=vigo=vigo_web,front=vigo_web,api=vigo_api
+
+    Además se generan aliases automáticos por cada clave mapeada
+    (ej. vigo_web → vigo_web, vigo web).
+    """
+    aliases: dict[str, str] = {"general": CLAVE_ORQUESTADOR}
+
+    # Auto: la propia clave y versión con espacios
+    for clave in rutas:
+        if clave == CLAVE_ORQUESTADOR:
+            continue
+        aliases[clave] = clave
+        aliases[clave.replace("_", " ")] = clave
+        # Prefijo antes del primer _ (vigo_web → vigo) solo si no choca
+        if "_" in clave:
+            pref = clave.split("_", 1)[0]
+            if pref and pref not in aliases:
+                aliases[pref] = clave
+
+    # Manual desde .env: alias=clave,alias2=clave2
+    raw = _env("ALIAS_PROYECTOS")
+    if raw:
+        for parte in raw.split(","):
+            parte = parte.strip()
+            if not parte or "=" not in parte:
+                continue
+            alias, clave = parte.split("=", 1)
+            alias_n = normalizar_clave(alias)
+            clave_n = normalizar_clave(clave)
+            if alias_n and clave_n:
+                aliases[alias_n] = clave_n
+
+    return aliases
+
+
+# Debe existir antes de _cargar_aliases (usa normalizar_clave más abajo);
+# definimos un stub y reasignamos tras la función real.
+def normalizar_clave(nombre: str) -> str:
+    return (
+        nombre.lower()
+        .strip()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
+
+
+RUTAS_PROYECTOS: dict[str, Path] = _cargar_rutas_proyectos()
+ALIAS_PROYECTOS: dict[str, str] = _cargar_aliases(RUTAS_PROYECTOS)
+
+# Claves que el menú puede listar (todos los mapeados + General)
+CLAVES_PROYECTOS_MENU: list[str] = [
+    *[k for k in RUTAS_PROYECTOS if k != CLAVE_ORQUESTADOR],
+    "General",
+]
 
 CORRECCIONES_TRANSCRIPCION: list[tuple[str, str]] = [
     (r"\besperagotado\b", "espera agotado"),
@@ -133,20 +199,6 @@ CORRECCIONES_TRANSCRIPCION: list[tuple[str, str]] = [
     (r"\bguion,\s*", "-"),
     (r"\bguión,\s*", "-"),
 ]
-
-
-def normalizar_clave(nombre: str) -> str:
-    return (
-        nombre.lower()
-        .strip()
-        .replace(" ", "_")
-        .replace("-", "_")
-        .replace("á", "a")
-        .replace("é", "e")
-        .replace("í", "i")
-        .replace("ó", "o")
-        .replace("ú", "u")
-    )
 
 
 def slug_carpeta_proyecto(nombre: str) -> str:
@@ -167,12 +219,8 @@ def slug_carpeta_proyecto(nombre: str) -> str:
 
     if key in ALIAS_PROYECTOS:
         canonica = ALIAS_PROYECTOS[key]
-        if canonica != CLAVE_ORQUESTADOR:
+        if canonica != CLAVE_ORQUESTADOR and canonica in RUTAS_PROYECTOS:
             return canonica
-
-    for alias, canonica in ALIAS_PROYECTOS.items():
-        if key == alias:
-            return canonica if canonica != CLAVE_ORQUESTADOR else "General"
 
     limpio = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", crudo)
     limpio = re.sub(r"\s+", "_", limpio.strip())
@@ -191,34 +239,28 @@ def resolver_proyecto(nombre: str) -> tuple[str, Path]:
         if canonica in RUTAS_PROYECTOS:
             return canonica, RUTAS_PROYECTOS[canonica]
 
-    for alias, canonica in ALIAS_PROYECTOS.items():
-        if key == alias and canonica in RUTAS_PROYECTOS:
-            return canonica, RUTAS_PROYECTOS[canonica]
-
     return slug_carpeta_proyecto(nombre), BASE_DIR
 
 
 def proyectos_conocidos_para_prompt() -> str:
-    """Lista legible para inyectar en el prompt del agente PM."""
+    """Lista legible para inyectar en el prompt del agente PM (dinámica)."""
     lineas = []
-    if "vigo_web" in RUTAS_PROYECTOS:
+    for clave in RUTAS_PROYECTOS:
+        if clave == CLAVE_ORQUESTADOR:
+            continue
+        aliases = sorted(
+            a for a, c in ALIAS_PROYECTOS.items() if c == clave and a != clave
+        )[:6]
+        extra = f" (también: {', '.join(aliases)})" if aliases else ""
         lineas.append(
-            "- 'vigo_web' → SOLO si mencionan explícitamente VIGO / DET_MINCO / PCE Web / front VIGO."
-        )
-    if "vigo_api" in RUTAS_PROYECTOS:
-        lineas.append(
-            "- 'vigo_api' → SOLO si mencionan API VIGO / PCM Api / backend VIGO."
-        )
-    if "pipelines" in RUTAS_PROYECTOS:
-        lineas.append(
-            "- 'pipelines' → SOLO si mencionan pipelines / COMMON_pipelines."
+            f"- '{clave}' → SOLO si mencionan explícitamente ese proyecto{extra}."
         )
     lineas.extend(
         [
             "- 'General' → si NO queda claro el proyecto, o es un proyecto nuevo no mapeado (NO adivines).",
             "",
             "REGLAS ANTI-ALUCINACIÓN:",
-            "- Solo elige claves mapeadas si el nombre del proyecto aparece de forma explícita.",
+            "- Solo elige una clave mapeada si el nombre aparece de forma explícita en el audio.",
             "- Si hablan de un proyecto desconocido o hay duda, proyecto = 'General'.",
         ]
     )
