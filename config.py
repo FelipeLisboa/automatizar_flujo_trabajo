@@ -32,6 +32,18 @@ AUTO_GIT_COMMIT = True
 # Quién eres tú en las reuniones (canal micrófono en la diarización)
 USUARIO_LOCAL = "Felipe"
 
+# Tras cada reunión: pedir nombre de cada Remoto_N mostrando qué dijo
+NOMBRAR_REMOTOS = True
+
+# Reconocimiento de voz + active learning (biblioteca en .voice_profiles/).
+# 1ª vez que aparece alguien → escribes el nombre → se guarda el perfil.
+# Próximas veces → si la voz coincide se asigna sola y se refuerza el perfil.
+# Requiere pyannote.audio + token HF (modelo pyannote/embedding). No es 100 % fiable.
+USAR_RECONOCIMIENTO_VOZ = True
+VOICE_MATCH_THRESHOLD = 0.72   # mínimo para sugerir / considerar match
+VOICE_AUTO_THRESHOLD = 0.78    # mínimo para asignar sin preguntar
+VOICE_AUTO_APPLY = True        # True = active learning automático cuando hay confianza
+
 # Diarización fina del canal remoto (varios speakers en Teams).
 # True = intenta separar Remoto_1, Remoto_2, … (recomendado en Teams real).
 # Requisitos:
@@ -41,11 +53,11 @@ USUARIO_LOCAL = "Felipe"
 #    - https://huggingface.co/pyannote/speaker-diarization-3.1
 #    - https://huggingface.co/pyannote/segmentation-3.0
 #    - https://huggingface.co/pyannote/speaker-diarization-community-1
+#    - https://huggingface.co/pyannote/embedding  (para reconocimiento de voz)
 USE_PYANNOTE = True
 HF_TOKEN = ""
 
-# Personas frecuentes. Remoto_1, Remoto_2… de pyannote se mapean a estos
-# nombres (en orden, excluyendo USUARIO_LOCAL). Ej: Ana, Carlos → Remoto_1=Ana.
+# Sugerencias al escribir nombres (no se asignan solos por orden de habla).
 PARTICIPANTES_CONOCIDOS: list[str] = [
     "Felipe",
     # "Ana",

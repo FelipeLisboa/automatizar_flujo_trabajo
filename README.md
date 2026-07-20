@@ -1,116 +1,94 @@
 # Asistente de Reuniones (Orquestador)
 
-Captura el audio de una reunión (**Teams / sistema + tu micrófono**), **diariza** quién habla, transcribe con Whisper, extrae tareas **con responsables** (agentes locales + Ollama) y genera un **prompt listo para Cursor** en `docs/`.
+Herramienta local para Windows que **graba tus reuniones** (Teams u otro audio del PC + tu micrófono), **separa quién habló**, te ayuda a **poner nombres a cada persona** (con biblioteca de voces que aprende sola), **extrae tareas con responsables** y genera un **prompt listo para pegar en Cursor**.
 
-Opcionalmente crea rama y commit en el **repo del producto** (nunca en este orquestador). Este repo permanece siempre en `main`.
+Opcionalmente crea la rama y el commit en el **repo del producto** (VIGO, pipelines, etc.). Este repositorio del orquestador **siempre permanece en `main`**.
 
-**Sistema soportado:** Windows 10/11 (captura WASAPI Loopback).
-
-**Repo:** https://github.com/FelipeLisboa/automatizar_flujo_trabajo
-
----
-
-## Índice
-
-1. [Qué hace el flujo](#1-qué-hace-el-flujo)
-2. [Instalación desde cero (sin Python ni nada)](#2-instalación-desde-cero-sin-python-ni-nada)
-3. [Configurar el proyecto para ti](#3-configurar-el-proyecto-para-ti)
-4. [Levantar la aplicación (día a día)](#4-levantar-la-aplicación-día-a-día)
-5. [Uso en una reunión](#5-uso-en-una-reunión)
-6. [Diarización y pyannote (varios remotos)](#6-diarización-y-pyannote-varios-remotos)
-7. [Proyectos, docs y Git](#7-proyectos-docs-y-git)
-8. [Arquitectura y configuración](#8-arquitectura-y-configuración)
-9. [Solución de problemas](#9-solución-de-problemas)
-10. [Checklist](#10-checklist)
+**Repo:** https://github.com/FelipeLisboa/automatizar_flujo_trabajo  
+**SO:** Windows 10/11
 
 ---
 
-## 1. Qué hace el flujo
+## Qué hace la app (en una frase)
+
+**Graba → distingue tu voz de la de los demás → nombra remotos (aprendiendo caras de voz) → entiende tareas y dueños → deja el prompt en `docs/` → (si quieres) prepara la rama en el repo correcto.**
+
+### Flujo completo
 
 ```
-Grabar (mic + audio del PC)
-    → Guardar WAV mix / mic / sys
-    → Diarizar (mic = tú, sistema = remotos)
-    → Transcribir con Whisper (local)
-    → Analizar con agentes CrewAI + Ollama (Qwen)
-    → Resolver proyecto (audio o consola)
-    → Confirmar responsables (si faltan)
-    → Guardar sesión en docs/
-    → (Opcional) Confirmar rama Y/N → Git en el repo del producto
+grabar (mic + sistema)
+  → WAV mix / mic / sys
+  → diarizar (tú vs Remoto_1, Remoto_2, …)
+  → biblioteca de voces (auto o te pregunta nombres nuevos)
+  → Whisper + agentes (Ollama / Qwen)
+  → proyecto + responsables
+  → docs/<proyecto>/<fecha>/
+  → (opcional) Git en repo de producto
 ```
 
-| Etapa | Qué ocurre |
-|--------|------------|
-| **Captura** | Micrófono + audio del sistema (WASAPI Loopback: Teams, navegador, etc.) |
-| **Diarización** | Mic → tu nombre; sistema → `Remoto` o `Remoto_N` (pyannote) |
-| **Transcripción** | Whisper `small` en español |
-| **Agentes** | Extraen proyecto, rama, tareas y responsables; generan prompt Cursor |
-| **Docs** | `prompt_cursor.md`, transcripciones, `meta.json`, audio |
-| **Git** | Solo en repos de producto mapeados, con confirmación |
-
-### Requisitos de hardware / PC (recomendado)
-
-| Recurso | Mínimo razonable |
-|---------|------------------|
-| RAM | 16 GB (8 GB puede ir justo con Whisper + Ollama) |
-| Disco | ~10–15 GB libres (Python, modelos Whisper, Ollama, opcional pyannote) |
-| CPU | Cualquier PC moderno; GPU NVIDIA ayuda pero **no es obligatoria** |
-| Audio | Micrófono + salida de audio (auriculares o altavoces) |
-
 ---
 
-## 2. Instalación desde cero (sin Python ni nada)
+## Estructura del proyecto
 
-Sigue los pasos **en orden**. Todo se hace en **Windows** con **PowerShell**.
-
-### Paso 0 — Abrir PowerShell
-
-1. Tecla Windows → escribe `PowerShell` → Ábrelo.
-2. (Opcional pero útil) Ejecutar como Administrador si más adelante el hotkey `Ctrl+Shift+R` no funciona.
-
----
-
-### Paso 1 — Instalar Git (para clonar el repo)
-
-1. Descarga: https://git-scm.com/download/win  
-2. Instala con las opciones por defecto (marca “Add to PATH” si aparece).  
-3. Cierra y vuelve a abrir PowerShell.  
-4. Verifica:
-
-```powershell
-git --version
+```text
+automatizar_flujo_trabajo/
+│
+├── main.py                 ← arranque: python main.py
+├── config.py               ← TODA la configuración (edita aquí)
+├── requirements.txt
+├── README.md
+├── .gitignore
+│
+├── orquestador/            ← código interno (no hace falta tocarlo a diario)
+│   ├── audio_processor.py  ← captura mic + loopback, Whisper
+│   ├── diarization.py      ← mic=tú / sys=remotos + pyannote
+│   ├── speaker_registry.py ← nombres Remoto_N + biblioteca de voces
+│   ├── task_ownership.py   ← responsables de tareas
+│   ├── project_input.py    ← detección / consola de proyecto
+│   ├── project_manager.py  ← agentes CrewAI
+│   ├── docs_manager.py     ← escribe docs/
+│   ├── git_automation.py   ← rama/commit en repos producto
+│   └── hotkeys.py          ← Ctrl+Shift+R
+│
+├── docs/                   ← salidas de cada reunión
+│   └── <proyecto>/<fecha>/
+│         prompt_cursor.md
+│         transcripcion.txt
+│         transcripcion_diarizada.txt
+│         meta.json
+│         audio_reunion.wav
+│
+├── .voice_profiles/        ← biblioteca de voces (local, no se sube a git)
+├── .tmp_audio/             ← WAV temporales mientras grabas
+└── .venv/                  ← entorno virtual (recomendado)
 ```
 
-Debe mostrar algo como `git version 2.x.x`.
-
-> Si no quieres Git: descarga el ZIP del repo en GitHub → Code → Download ZIP → descomprímelo en una carpeta fija.
+| Carpeta / archivo | ¿Lo editas? | Qué es |
+|-------------------|-------------|--------|
+| `config.py` | **Sí** | Tu nombre, rutas, flags de voz/Git |
+| `main.py` | Casi nunca | Punto de entrada |
+| `orquestador/` | Solo si desarrollas | Lógica interna |
+| `docs/` | Consultas | Resultados de reuniones |
+| `.voice_profiles/` | Automático | Perfiles Ana.npy, Carlos.npy, … |
 
 ---
 
-### Paso 2 — Instalar Python 3.12+
+## Instalación desde cero
 
-1. Descarga el instalador oficial: https://www.python.org/downloads/  
-   - Elige **Python 3.12** o superior (64-bit).
-2. **Importante:** en el instalador marca:
-   - **Add python.exe to PATH**
-3. Instala y cierra/reabre PowerShell.
-4. Verifica:
+### 1. Git
+
+https://git-scm.com/download/win → instalar → reiniciar PowerShell → `git --version`
+
+### 2. Python 3.12+
+
+https://www.python.org/downloads/ → marcar **Add python.exe to PATH** → reiniciar PowerShell:
 
 ```powershell
 python --version
 python -m pip --version
 ```
 
-Ejemplo esperado: `Python 3.12.x` y `pip 24.x`.
-
-Si `python` no se reconoce:
-
-- Reinstala marcando PATH, **o**
-- Usa el launcher: `py -3.12 --version`
-
----
-
-### Paso 3 — Obtener el código del orquestador
+### 3. Clonar el repo
 
 ```powershell
 cd $HOME\Documents
@@ -118,20 +96,9 @@ git clone https://github.com/FelipeLisboa/automatizar_flujo_trabajo.git
 cd automatizar_flujo_trabajo
 ```
 
-Anota la ruta (la usarás siempre). Ejemplo:
-
-```text
-C:\Users\TU_USUARIO\Documents\automatizar_flujo_trabajo
-```
-
----
-
-### Paso 4 — (Recomendado) Crear un entorno virtual
-
-Así las dependencias no se mezclan con otros proyectos:
+### 4. Entorno virtual (recomendado)
 
 ```powershell
-cd $HOME\Documents\automatizar_flujo_trabajo
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
@@ -140,356 +107,160 @@ Si PowerShell bloquea scripts:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-.\.venv\Scripts\Activate.ps1
 ```
 
-Verás `(.venv)` al inicio de la línea. **Activa el venv cada vez** que abras una terminal nueva para usar la app.
-
-Para salir del venv: `deactivate`
-
----
-
-### Paso 5 — Instalar dependencias Python
-
-Con el venv activo (o sin venv, si preferiste instalación global):
+### 5. Dependencias
 
 ```powershell
-cd $HOME\Documents\automatizar_flujo_trabajo
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Esto instala, entre otras:
+### 6. Ollama (IA local)
 
-- `openai-whisper` + `torch` (transcripción)
-- `PyAudioWPatch` / `sounddevice` (captura de audio Windows)
-- `crewai` (agentes)
-- `keyboard` (hotkey)
-- `numpy`, `scipy`
-
-**La primera instalación puede tardar varios minutos** (sobre todo `torch` y Whisper).
-
-#### Si falla `PyAudioWPatch` / audio
-
-1. Asegúrate de estar en Windows 10/11 64-bit.  
-2. Reintenta: `python -m pip install --upgrade PyAudioWPatch`  
-3. Si sigue fallando, reinicia el PC tras instalar Python y vuelve a intentar.
-
----
-
-### Paso 6 — Instalar Ollama (IA local para los agentes)
-
-1. Descarga: https://ollama.com/download  
-2. Instala Ollama en Windows.  
-3. Ábrelo (debe quedar el icono en la bandeja del sistema).  
-4. En PowerShell descarga el modelo que usa el proyecto:
+1. https://ollama.com/download → instalar y dejarlo abierto  
+2. Descargar el modelo:
 
 ```powershell
 ollama pull qwen2.5-coder:7b
-```
-
-La descarga es grande (~4–5 GB). Verifica:
-
-```powershell
 ollama list
 ```
 
-Debe aparecer `qwen2.5-coder:7b`.
+### 7. Audio de Windows
 
-Prueba rápida:
+- Reproducción **por defecto** = por donde suena Teams  
+- Micrófono **por defecto** = el tuyo  
+- Auriculares ayudan a evitar eco en el mic  
 
-```powershell
-ollama run qwen2.5-coder:7b "Di hola en una frase"
-```
-
-(Sal con `/bye` o Ctrl+C.)
-
-> **Ollama debe estar abierto** cada vez que uses el orquestador. Si no, los agentes fallan.
-
----
-
-### Paso 7 — (Opcional) pyannote para varios remotos en Teams
-
-Sin esto ya funciona: **tú (mic) vs Remoto (PC)**.  
-Actívalo solo si en Teams hay **varias personas** y quieres separarlas (`Remoto_1`, `Remoto_2`, …).
-
-1. Cuenta en https://huggingface.co  
-2. Token Read: https://huggingface.co/settings/tokens  
-3. Acepta condiciones (logueado) en **estas tres** páginas:
-   - https://huggingface.co/pyannote/speaker-diarization-3.1  
-   - https://huggingface.co/pyannote/segmentation-3.0  
-   - https://huggingface.co/pyannote/speaker-diarization-community-1  
-4. Instala:
+### 8. (Opcional) Varios remotos + biblioteca de voces
 
 ```powershell
 python -m pip install pyannote.audio
 ```
 
-5. En `config.py` deja `USE_PYANNOTE = True` (ya viene así por defecto en este repo).  
-6. **No pongas el token en el archivo.** En cada sesión de PowerShell:
+Token HF: `$env:HF_TOKEN = "hf_..."`  
+
+Acepta (logueado) en:
+
+- https://huggingface.co/pyannote/speaker-diarization-3.1  
+- https://huggingface.co/pyannote/segmentation-3.0  
+- https://huggingface.co/pyannote/speaker-diarization-community-1  
+- https://huggingface.co/pyannote/embedding  
+
+---
+
+## Configuración (`config.py`) — qué es cada “flag”
+
+Un **flag** es una opción True/False o un número en `config.py`. No es un archivo aparte: abres `config.py` y cambias el valor.
+
+### Identidad y equipo
+
+| Variable | Ejemplo | Para qué |
+|----------|---------|----------|
+| `USUARIO_LOCAL` | `"Felipe"` | Tu nombre en la diarización (canal mic) |
+| `PARTICIPANTES_CONOCIDOS` | `["Felipe", "Ana"]` | Solo **sugerencias** al escribir nombres (no asigna solo por orden) |
+
+### Biblioteca de voces (active learning)
+
+| Variable | Default | Para qué |
+|----------|---------|----------|
+| `NOMBRAR_REMOTOS` | `True` | Tras grabar, identificar Remoto_N (auto o pregunta) |
+| `USAR_RECONOCIMIENTO_VOZ` | `True` | Usar `.voice_profiles/` para reconocer voces |
+| `VOICE_AUTO_APPLY` | `True` | Si la voz es muy parecida → asigna el nombre **sin preguntar** |
+| `VOICE_MATCH_THRESHOLD` | `0.72` | Similitud mínima para **sugerir** (0–1) |
+| `VOICE_AUTO_THRESHOLD` | `0.78` | Similitud mínima para asignar **automático** |
+
+**Cómo se usa en la práctica**
+
+1. Primera vez que habla Ana → ves citas de `Remoto_1` → escribes `Ana` → se crea `.voice_profiles/Ana.npy`.  
+2. Próxima reunión → si la voz coincide (≥ 0.78) → `Remoto_1 → Ana` solo, y el perfil se refuerza.  
+3. Persona nueva → no hay match → te pregunta → escribes el nombre → nuevo perfil. Se puede repetir indefinidamente.
+
+Si `VOICE_AUTO_APPLY = False`, siempre pregunta (aunque sugiera el nombre).  
+Si `USAR_RECONOCIMIENTO_VOZ = False`, solo nombrado manual (sin biblioteca).
+
+### Diarización remota (pyannote)
+
+| Variable | Default | Para qué |
+|----------|---------|----------|
+| `USE_PYANNOTE` | `True` | Separar varias voces en el audio de Teams (`Remoto_1`, `Remoto_2`, …) |
+| `HF_TOKEN` | `""` | Mejor usar `$env:HF_TOKEN` (no subas el token a git) |
+
+Sin pyannote sigue funcionando: tú vs un solo `Remoto`.
+
+### Whisper, agentes, Git
+
+| Variable | Default | Para qué |
+|----------|---------|----------|
+| `WHISPER_MODEL` | `"small"` | Modelo de transcripción (`medium` = más preciso/lento) |
+| `OLLAMA_LLM` | `"ollama/qwen2.5-coder:7b"` | Modelo de los agentes |
+| `AUTO_GIT_COMMIT` | `True` | Ofrecer crear rama/commit en repo de producto |
+| `CONFIRMAR_RESPONSABLES` | `True` | Preguntar dueño de tarea si falta |
+| `HOTKEY` | `"ctrl+shift+r"` | Atajo grabar/parar |
+| `RECORDING_HEARTBEAT_SEC` | `10` | Cada cuántos segundos muestra `🔴 mm:ss` |
+| `RUTAS_PROYECTOS` | rutas locales | Mapa clave → carpeta Git de cada producto |
+
+---
+
+## Levantar la app (día a día)
 
 ```powershell
-$env:HF_TOKEN = "hf_TU_TOKEN_AQUI"
-```
-
-La primera vez descarga modelos extra y puede tardar.
-
-Para desactivar: `USE_PYANNOTE = False` en `config.py`.
-
----
-
-### Paso 8 — Ajustar Windows (audio)
-
-1. **Configuración → Sistema → Sonido**
-2. El dispositivo de **reproducción** por defecto debe ser el que usa Teams (auriculares/altavoces).
-3. El **micrófono** por defecto debe ser el tuyo.
-4. Volumen del sistema audible (el loopback captura lo que sale por el default).
-
-Consejos:
-
-- Auriculares ayudan a que tu mic **no grabe el eco** de Teams.
-- Si Teams sale por un dispositivo y el default es otro, el orquestador **no** oirá la reunión.
-
----
-
-## 3. Configurar el proyecto para ti
-
-Edita `config.py` (Bloc de notas, VS Code o Cursor):
-
-### Obligatorio / muy recomendado
-
-```python
-USUARIO_LOCAL = "TuNombre"   # cómo te etiqueta la diarización (canal mic)
-```
-
-```python
-PARTICIPANTES_CONOCIDOS = [
-    "TuNombre",
-    # "Ana",
-    # "Carlos",
-]
-```
-
-### Rutas de tus repos de producto (para Git automático)
-
-Cambia `RUTAS_PROYECTOS` a las carpetas reales de **tu** máquina:
-
-```python
-RUTAS_PROYECTOS = {
-    "vigo_web": Path(r"C:\Users\TU_USUARIO\...\DET_MINCO_PCE_Web"),
-    "vigo_api": Path(r"C:\Users\TU_USUARIO\...\DET_MINCO_PCM_Api"),
-    "pipelines": Path(r"C:\Users\TU_USUARIO\...\COMMON_pipelines"),
-    # ...
-}
-```
-
-Si un proyecto no existe en tu PC, quítalo o déjalo y el sistema solo guardará docs locales / nombres libres (`NovaTrack`, etc.).
-
-### Otras opciones útiles
-
-| Variable | Para qué |
-|----------|----------|
-| `AUTO_GIT_COMMIT` | `True` = ofrecer crear rama en repo producto |
-| `CONFIRMAR_RESPONSABLES` | `True` = preguntar dueño si falta |
-| `WHISPER_MODEL` | `small` (default); `medium` = más preciso/lento |
-| `USE_PYANNOTE` | Varios speakers remotos |
-
----
-
-## 4. Levantar la aplicación (día a día)
-
-Cada vez que vayas a usarla:
-
-```powershell
-# 1) Ir al proyecto
 cd $HOME\Documents\automatizar_flujo_trabajo
-
-# 2) Activar venv (si lo creaste)
-.\.venv\Scripts\Activate.ps1
-
-# 3) Ollama abierto (icono en bandeja) + modelo ya descargado
-
-# 4) Token solo si usas pyannote
-$env:HF_TOKEN = "hf_..."
-
-# 5) Arrancar
+.\.venv\Scripts\Activate.ps1          # si usas venv
+# Ollama debe estar abierto
+$env:HF_TOKEN = "hf_..."              # solo si usas pyannote / voces
 python main.py
 ```
 
-Deberías ver el menú:
+Comandos: `grabar` · `parar` · `toggle` · `proyectos` · `docs` · `salir`  
+Hotkey: `Ctrl+Shift+R` (a veces hace falta terminal como Administrador).
+
+### Reunión típica
+
+1. `grabar` (o hotkey)  
+2. Habla con normalidad en Teams  
+3. `parar` → Enter  
+4. Si hay voces nuevas, nómbralas; si ya están en la biblioteca, se asignan solas  
+5. Confirma proyecto / responsables / rama si pregunta  
+6. Abre `docs\<proyecto>\<fecha>\prompt_cursor.md` en Cursor  
+
+---
+
+## Salida de una sesión
 
 ```text
-=======================================================
-  ASISTENTE DE REUNIONES (orquestador)
-=======================================================
-Comandos:
-  grabar / parar / toggle  — control de captura
-  ...
+docs/<proyecto>/<YYYY-MM-DD_HH-MM-SS>/
+  prompt_cursor.md
+  transcripcion.txt
+  transcripcion_diarizada.txt
+  meta.json
+  audio_reunion.wav
 ```
 
-Para salir: escribe `salir` o Ctrl+C.
-
-### Primera ejecución
-
-- Whisper descarga el modelo `small` la primera vez (tarda).  
-- pyannote (si está activo) también descarga pesos la primera vez.
+Fallos tempranos: `docs/_fallidos/<fecha>/`.
 
 ---
 
-## 5. Uso en una reunión
+## Solución rápida de problemas
 
-1. `python main.py` en marcha + Ollama abierto.  
-2. Únete a Teams (audio por el dispositivo default).  
-3. `grabar` **o** `Ctrl+Shift+R`.  
-4. Habla con normalidad; latido `🔴 mm:ss`.  
-5. Al terminar: `parar` / Enter **o** otra vez el hotkey.  
-6. Cuando diga *Presiona Enter…*, pulsa **Enter**.  
-7. Espera transcripción + agentes.  
-8. Confirma proyecto / responsables / rama si pregunta.  
-9. Abre `docs\<proyecto>\<fecha>\prompt_cursor.md` y úsalo en Cursor.
-
-### Comandos
-
-| Comando | Acción |
-|---------|--------|
-| `grabar` | Inicia captura mic + sistema |
-| `parar` / Enter | Detiene o continúa el flujo pendiente |
-| `toggle` | Alterna grabar/parar |
-| `proyectos` | Lista rutas mapeadas |
-| `docs` | Abre la carpeta `docs/` |
-| `salir` | Cierra la app |
-
-| Hotkey | Acción |
-|--------|--------|
-| `Ctrl+Shift+R` | Alternar grabar / parar |
-
-Si el hotkey no responde: terminal como Administrador, o usa solo `grabar` / `parar`.
-
-### Buenas prácticas al hablar
-
-- Nombra el proyecto: *“esto es para VIGO”* / *“proyecto NovaTrack”*.  
-- Asigna trabajo en voz alta: *“yo me encargo del filtro”*.  
-- Evita hablar solo de “la falla” sin producto.
-
-### Prueba sin Teams (ElevenLabs u otro audio)
-
-1. `grabar`  
-2. Reproduce audio por los **altavoces/auriculares default**.  
-3. Cuando termine, habla tú al mic.  
-4. `parar` → Enter.
+| Problema | Qué hacer |
+|----------|-----------|
+| `python` no existe | Reinstalar con Add to PATH |
+| Agentes fallan | ¿Ollama abierto? ¿`qwen2.5-coder:7b` en `ollama list`? |
+| No se oye Teams | Salida default = dispositivo de Teams |
+| Eco / basura en tu canal | Baja volumen auriculares; habla después del remoto |
+| pyannote 403 | Acepta los 4 modelos HF + token |
+| No reconoce voces | Primera vez hay que nombrar; acepta `pyannote/embedding` |
+| Hotkey muerto | Admin o usa `grabar`/`parar` |
 
 ---
 
-## 6. Diarización y pyannote (varios remotos)
+## Checklist
 
-| Etiqueta | Origen |
-|----------|--------|
-| `[TuNombre mm:ss]` | Canal micrófono (`USUARIO_LOCAL`) |
-| `[Remoto mm:ss]` | Canal sistema, un solo remoto |
-| `[Remoto_N mm:ss]` o nombre | Canal sistema + pyannote + `PARTICIPANTES_CONOCIDOS` |
+**Primera vez:** Git · Python · clone · venv · `pip install -r requirements.txt` · Ollama + modelo · editar `config.py` · (opcional) pyannote + token  
 
-Con **una** voz remota (ElevenLabs) es normal ver un solo remoto.  
-La separación `Remoto_1` / `Remoto_2` se nota con **2+ personas** en Teams.
-
-Si pyannote falla (403, token, etc.), el flujo **sigue** con Remoto único.
+**Cada reunión:** Ollama · venv · `$env:HF_TOKEN` si aplica · `python main.py` · grabar/parar · usar el prompt en Cursor  
 
 ---
 
-## 7. Proyectos, docs y Git
-
-### Cómo se elige el proyecto
-
-1. Menciones explícitas (`VIGO`, `pipelines`, …) o *“proyecto NovaTrack”*.  
-2. Si hay duda → consola (número, clave o nombre libre).  
-3. Nombre libre → carpeta `docs/NovaTrack/` (sin Git de producto).
-
-### Salida de una sesión
-
-```text
-docs\<proyecto>\<YYYY-MM-DD_HH-MM-SS>\
-  ├── prompt_cursor.md
-  ├── transcripcion.txt
-  ├── transcripcion_diarizada.txt
-  ├── meta.json
-  └── audio_reunion.wav
-```
-
-Si falla temprano: `docs\_fallidos\<fecha>\` (conserva el WAV).
-
-### Git en el producto (si confirmas)
-
-Copia a `<repo_producto>\docs\reuniones\...` y hace commit en la rama confirmada.  
-Este orquestador **nunca** cambia de rama: siempre `main`.
-
----
-
-## 8. Arquitectura y configuración
-
-| Archivo | Rol |
-|---------|-----|
-| `main.py` | Menú, hotkey, orquestación |
-| `audio_processor.py` | Grabación dual, WAV, Whisper |
-| `diarization.py` | Mic/sys + pyannote + anti-eco |
-| `task_ownership.py` | Responsables |
-| `project_manager.py` | Agentes CrewAI |
-| `project_input.py` | Detección / consola de proyecto |
-| `docs_manager.py` | Escritura en `docs/` |
-| `git_automation.py` | Rama/commit en repos producto |
-| `hotkeys.py` | `Ctrl+Shift+R` |
-| `config.py` | Toda la configuración |
-| `requirements.txt` | Dependencias |
-
----
-
-## 9. Solución de problemas
-
-| Síntoma | Qué hacer |
-|---------|-----------|
-| `python` no se reconoce | Reinstalar Python con **Add to PATH**; reiniciar PowerShell |
-| `pip` falla / permisos | Usa venv (Paso 4) o `python -m pip …` |
-| Instalación de `torch` muy lenta | Normal la primera vez; espera o usa red estable |
-| Ollama / agentes fallan | ¿Ollama abierto? ¿`ollama list` muestra `qwen2.5-coder:7b`? |
-| Solo se oye tu voz, no Teams | Reproducción **default** = donde suena Teams; sube volumen |
-| Solo Remoto, sin tu voz | Mic default correcto; permisos de mic en Windows |
-| Basura en tu canal (eco) | Baja volumen auriculares; habla **después** del remoto |
-| Hotkey no responde | Admin o usa `grabar`/`parar` |
-| pyannote 403 | Acepta los 3 modelos HF + `$env:HF_TOKEN` válido |
-| pyannote `itertracks` / API | Actualiza el código del repo (`git pull`) |
-| Falló a mitad | Mira `docs/_fallidos/` |
-
----
-
-## 10. Checklist
-
-### Primera instalación
-
-- [ ] Git instalado (o ZIP descargado)  
-- [ ] Python 3.12+ con PATH  
-- [ ] Repo clonado  
-- [ ] venv creado y activado  
-- [ ] `pip install -r requirements.txt` OK  
-- [ ] Ollama instalado + `ollama pull qwen2.5-coder:7b`  
-- [ ] `config.py`: `USUARIO_LOCAL` y rutas de proyectos  
-- [ ] (Opcional) pyannote + token HF  
-- [ ] Audio Windows: mic + salida default correctos  
-- [ ] `python main.py` abre el menú  
-
-### Antes de cada reunión
-
-- [ ] Ollama en ejecución  
-- [ ] venv activado (si aplica)  
-- [ ] `$env:HF_TOKEN` si usas pyannote  
-- [ ] `python main.py`  
-- [ ] `grabar` al empezar / `parar` al terminar  
-- [ ] Enter para continuar el análisis  
-- [ ] Abrir `prompt_cursor.md` en Cursor  
-
----
-
-## Resumen
-
-**Instala Python + Ollama + dependencias → configura tu nombre y rutas → `python main.py` → graba la reunión → obtén el prompt en `docs/` → (opcional) rama en el repo del producto.**
-
----
-
-*Orquestador:* https://github.com/FelipeLisboa/automatizar_flujo_trabajo
+*https://github.com/FelipeLisboa/automatizar_flujo_trabajo*

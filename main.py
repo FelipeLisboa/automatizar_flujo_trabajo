@@ -1,8 +1,7 @@
 # main.py
 """
-Asistente de reuniones local (orquestador):
-  grabar → diarización (mic/sys) → Whisper → CrewAI → docs/ → Git opcional
-Este repositorio permanece siempre en main.
+Punto de entrada del asistente de reuniones (orquestador).
+Uso: python main.py
 """
 from __future__ import annotations
 
@@ -15,19 +14,20 @@ BASE = Path(__file__).resolve().parent
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-from audio_processor import (
+from config import AUTO_GIT_COMMIT, CLAVE_ORQUESTADOR, DOCS_DIR, HOTKEY, RUTAS_PROYECTOS, WHISPER_MODEL
+from orquestador.audio_processor import (
     detener_grabacion_manual,
     esta_grabando,
     iniciar_grabacion_manual,
 )
-from config import AUTO_GIT_COMMIT, CLAVE_ORQUESTADOR, DOCS_DIR, HOTKEY, RUTAS_PROYECTOS, WHISPER_MODEL
-from diarization import transcribir_desde_captura
-from docs_manager import guardar_fallo, guardar_sesion
-from git_automation import aplicar_cambios_locales
-from hotkeys import detener_hotkey, iniciar_hotkey
-from project_input import resolver_proyecto_interactivo
-from project_manager import ejecutar_flujo_agentes
-from task_ownership import (
+from orquestador.diarization import transcribir_desde_captura
+from orquestador.docs_manager import guardar_fallo, guardar_sesion
+from orquestador.git_automation import aplicar_cambios_locales
+from orquestador.hotkeys import detener_hotkey, iniciar_hotkey
+from orquestador.project_input import resolver_proyecto_interactivo
+from orquestador.project_manager import ejecutar_flujo_agentes
+from orquestador.speaker_registry import identificar_remotos_interactivo
+from orquestador.task_ownership import (
     aplicar_claims_desde_diarizacion,
     confirmar_responsables_consola,
     resumen_tareas_markdown,
@@ -54,7 +54,7 @@ def _eliminar_temporales(captura: dict | None) -> None:
 
 
 def procesar_flujo_completo(captura: dict) -> None:
-    """Diariza → agentes → docs → Git opcional."""
+    """Diariza → nombrar remotos → agentes → docs → Git opcional."""
     conservado = False
     archivo_mix = captura.get("mix") or ""
     try:
@@ -83,6 +83,14 @@ def procesar_flujo_completo(captura: dict) -> None:
 
         preview = texto_reunion.replace("\n", " | ")[:220]
         print(f"📝 Diarizada ({resultado_tx.get('modo')}): {preview}...")
+
+        resultado_tx = identificar_remotos_interactivo(
+            resultado_tx,
+            audio_sys=resultado_tx.get("audio_sys") or captura.get("audio_sys"),
+        )
+        texto_diarizado = (resultado_tx.get("diarizada") or "").strip()
+        texto_plano = (resultado_tx.get("plana") or "").strip()
+        texto_reunion = texto_diarizado or texto_plano
 
         print("🤖 Analizando con agentes…")
         resultado = ejecutar_flujo_agentes(texto_reunion)
@@ -125,6 +133,7 @@ def procesar_flujo_completo(captura: dict) -> None:
                 "transcripcion_diarizada": texto_diarizado,
                 "diarizacion_modo": resultado_tx.get("modo"),
                 "segmentos": resultado_tx.get("segmentos") or [],
+                "mapa_remotos": resultado_tx.get("mapa_remotos") or {},
             },
         )
         conservado = True
@@ -138,24 +147,21 @@ def procesar_flujo_completo(captura: dict) -> None:
                 carpeta_sesion=carpeta,
             )
         else:
-            print("ℹ️ AUTO_GIT_COMMIT desactivado.")
+            print("ℹ️ AUTO_GIT_COMMIT=False — solo se guardó en docs/ local.")
 
         print("✨ Flujo completado.")
         print(f"👉 Prompt: {carpeta / 'prompt_cursor.md'}\n")
 
     except Exception as e:
-        print(f"❌ Error crítico en el pipeline: {e}")
+        print(f"❌ Error en el flujo: {e}")
         if not conservado:
-            try:
-                guardar_fallo(motivo=f"Error crítico: {e}", archivo_audio=archivo_mix)
-                conservado = True
-            except Exception:
-                pass
+            guardar_fallo(motivo=str(e), archivo_audio=archivo_mix)
+            conservado = True
     finally:
         if conservado:
             _eliminar_temporales(captura)
-        elif archivo_mix and os.path.exists(archivo_mix):
-            print(f"⚠️ Se conserva el audio temporal: {archivo_mix}\n")
+        else:
+            _eliminar_temporales(captura)
 
 
 def _iniciar_grabacion() -> None:
@@ -165,37 +171,32 @@ def _iniciar_grabacion() -> None:
 
 
 def _encolar_proceso_tras_detener() -> None:
-    global _grabando, _procesando, _pending_captura
-
+    global _pending_captura, _grabando
     captura = detener_grabacion_manual()
     _grabando = False
-
     if not captura or not captura.get("mix"):
-        print("⚠️ No se generó audio válido.")
-        _procesando = False
+        with _estado_lock:
+            global _procesando
+            _procesando = False
+        print("⚠️ No hay audio para procesar.")
         return
-
-    _pending_captura = captura
     print("⏳ Presiona Enter para continuar el análisis…")
+    with _estado_lock:
+        _pending_captura = captura
 
 
 def alternar_grabacion() -> None:
     global _grabando, _procesando
-
     with _estado_lock:
         if _procesando or _pending_captura:
-            print("⚠️ Todavía hay una sesión en curso. Espera un momento.")
+            print("⚠️ Espera a que termine el procesamiento.")
             return
-
-        if not _grabando and not esta_grabando():
-            _iniciar_grabacion()
-            return
-
         if _grabando or esta_grabando():
             _procesando = True
             _grabando = False
             threading.Thread(target=_encolar_proceso_tras_detener, daemon=True).start()
-            return
+        else:
+            _iniciar_grabacion()
 
 
 def _mostrar_proyectos() -> None:
@@ -203,8 +204,8 @@ def _mostrar_proyectos() -> None:
     for clave, ruta in RUTAS_PROYECTOS.items():
         if clave == CLAVE_ORQUESTADOR:
             continue
-        existe = "OK" if ruta.exists() else "NO"
-        git = " [git]" if (ruta / ".git").is_dir() else ""
+        existe = "OK" if Path(ruta).exists() else "??"
+        git = " [git]" if (Path(ruta) / ".git").exists() else ""
         print(f"  [{existe}] {clave}: {ruta}{git}")
     print("\nProyecto nuevo / desconocido → escribe el nombre (queda en docs/<nombre>/)")
     print(f"Orquestador (siempre main): {BASE}")
@@ -285,33 +286,26 @@ def menu_consola() -> None:
                 elif comando == "":
                     continue
                 else:
-                    print("⚠️ No hay grabación activa. Usa 'grabar' o el hotkey.")
+                    print("⚠️ No hay grabación activa.")
 
-        elif comando in ("toggle", "t"):
+        elif comando == "toggle":
             alternar_grabacion()
 
-        elif comando in ("proyectos", "projects", "map"):
+        elif comando in ("proyectos", "projects"):
             _mostrar_proyectos()
 
         elif comando == "docs":
-            print(f"📂 {DOCS_DIR}")
-            try:
-                os.startfile(str(DOCS_DIR))
-            except OSError:
-                pass
+            os.startfile(str(DOCS_DIR)) if hasattr(os, "startfile") else print(DOCS_DIR)
 
         elif comando in ("salir", "exit", "quit"):
-            with _estado_lock:
-                if _grabando or esta_grabando():
-                    detener_grabacion_manual()
-                    _grabando = False
             _salir = True
-            print("👋 Listo. ¡Buen código, Felipe!")
+            break
 
         else:
-            print("❓ Usa: grabar | parar | toggle | proyectos | docs | salir")
+            print("Comandos: grabar | parar | toggle | proyectos | docs | salir")
 
     detener_hotkey()
+    print("Hasta luego.")
 
 
 if __name__ == "__main__":

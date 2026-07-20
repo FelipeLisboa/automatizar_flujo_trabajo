@@ -15,3 +15,6 @@ venv/
 
 # Whisper / torch caches locales
 .cache/
+
+# IDE
+.vscode/

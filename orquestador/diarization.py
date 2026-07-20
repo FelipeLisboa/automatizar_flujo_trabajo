@@ -21,7 +21,6 @@ import warnings
 import numpy as np
 
 from config import (
-    PARTICIPANTES_CONOCIDOS,
     USUARIO_LOCAL,
     USE_PYANNOTE,
     WHISPER_INITIAL_PROMPT,
@@ -41,7 +40,7 @@ def _overlap(a0: float, a1: float, b0: float, b1: float) -> float:
 
 def _transcribir_segmentos(audio: np.ndarray, model) -> list[dict]:
     """Whisper → lista de {start, end, text}."""
-    from audio_processor import TARGET_RATE, _corregir_transcripcion
+    from orquestador.audio_processor import TARGET_RATE, _corregir_transcripcion
 
     if audio is None or audio.size == 0 or _peak(audio) < 0.001:
         return []
@@ -221,7 +220,7 @@ def _diarizar_remoto_pyannote(audio_sys: np.ndarray | None) -> list[tuple[float,
 
     try:
         import torch
-        from audio_processor import TARGET_RATE
+        from orquestador.audio_processor import TARGET_RATE
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -247,13 +246,10 @@ def _diarizar_remoto_pyannote(audio_sys: np.ndarray | None) -> list[tuple[float,
         turns: list[tuple[float, float, str]] = []
         speaker_map: dict[str, str] = {}
         next_id = 1
-        remotos = [p for p in PARTICIPANTES_CONOCIDOS if p.lower() != USUARIO_LOCAL.lower()]
+        # Solo etiquetas Remoto_N — los nombres reales se piden después (speaker_registry)
         for turn, _, speaker in annotation.itertracks(yield_label=True):
             if speaker not in speaker_map:
-                if next_id <= len(remotos):
-                    speaker_map[speaker] = remotos[next_id - 1]
-                else:
-                    speaker_map[speaker] = f"Remoto_{next_id}"
+                speaker_map[speaker] = f"Remoto_{next_id}"
                 next_id += 1
             turns.append((float(turn.start), float(turn.end), speaker_map[speaker]))
         if turns:
@@ -346,7 +342,7 @@ def construir_transcripcion_diarizada(
         "modo": "mic_sys" | "mic_sys+pyannote" | "mix_fallback"
       }
     """
-    from audio_processor import TARGET_RATE, _cargar_whisper
+    from orquestador.audio_processor import TARGET_RATE, _cargar_whisper
 
     _ = ruta_sys_wav  # legacy; pyannote usa array en memoria
     model = _cargar_whisper()
@@ -394,6 +390,7 @@ def construir_transcripcion_diarizada(
         "plana": plana,
         "segmentos": todos,
         "modo": modo,
+        "audio_sys": audio_sys,
     }
 
 
@@ -402,7 +399,7 @@ def transcribir_desde_captura(captura: dict) -> dict:
     Entrada: dict de detener_grabacion_manual()
       {mix, mic, sys, audio_mic, audio_sys}
     """
-    from audio_processor import _cargar_wav_float32
+    from orquestador.audio_processor import _cargar_wav_float32
 
     audio_mic = captura.get("audio_mic")
     audio_sys = captura.get("audio_sys")
@@ -423,7 +420,7 @@ def transcribir_desde_captura(captura: dict) -> dict:
     ):
         mix = captura.get("mix")
         if mix:
-            from audio_processor import transcribir_local
+            from orquestador.audio_processor import transcribir_local
 
             texto = transcribir_local(mix)
             return {

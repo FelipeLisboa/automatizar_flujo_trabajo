@@ -8,7 +8,7 @@ import re
 from crewai import Agent, Task, Crew, Process
 
 from config import OLLAMA_LLM, PARTICIPANTES_CONOCIDOS, USUARIO_LOCAL, proyectos_conocidos_para_prompt
-from task_ownership import normalizar_tareas
+from orquestador.task_ownership import normalizar_tareas
 
 ollama_llm = OLLAMA_LLM
 
