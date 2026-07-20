@@ -1,11 +1,37 @@
+# =============================================================================
+# Dependencias del orquestador de reuniones (Windows)
+# Instalar:
+#   python -m pip install --upgrade pip
+#   python -m pip install -r requirements.txt
+# =============================================================================
+
+# Captura de audio (mic + loopback WASAPI en Windows)
 sounddevice>=0.5.0
+PyAudioWPatch>=0.2.12.6
 numpy>=1.26.0
 scipy>=1.11.0
+
+# Transcripción
 openai-whisper>=20231117
-PyAudioWPatch>=0.2.12.6
-crewai>=0.80.0
-keyboard>=0.13.5
 torch
+
+# Agentes (Ollama local vía CrewAI)
+crewai>=0.80.0
+
+# Hotkeys / config
+keyboard>=0.13.5
 python-dotenv>=1.0.0
-# Opcional — diarización fina del canal remoto (varios speakers en Teams):
+
+# Necesario para pyannote / embeddings de voz (sin esto falla la huella vocal)
+omegaconf>=2.3.0
+
+# -----------------------------------------------------------------------------
+# Opcional — diarización fina + biblioteca de voces (varios speakers en Teams)
+# Descomenta o instala aparte si pones USE_PYANNOTE=true en .env:
+#
+#   python -m pip install "pyannote.audio"
+#
+# También necesitas HF_TOKEN en .env y aceptar los modelos en Hugging Face
+# (ver README).
+# -----------------------------------------------------------------------------
 # pyannote.audio

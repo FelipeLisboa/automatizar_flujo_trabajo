@@ -1,6 +1,6 @@
 # git_automation.py
 """
-Git solo en repos de producto (VIGO, pipelines, etc.).
+Git solo en repos de producto mapeados en .env (PROYECTO_*).
 Este orquestador NUNCA cambia de rama ni hace commit en su propio repo.
 """
 from __future__ import annotations

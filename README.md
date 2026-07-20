@@ -2,10 +2,9 @@
 
 Herramienta local para Windows que **graba tus reuniones** (Teams u otro audio del PC + tu micrófono), **separa quién habló**, te ayuda a **poner nombres a cada persona** (con biblioteca de voces que aprende sola), **extrae tareas con responsables** y genera un **prompt listo para pegar en Cursor**.
 
-Opcionalmente crea la rama y el commit en el **repo del producto** (VIGO, pipelines, etc.). Este repositorio del orquestador **siempre permanece en `main`**.
+Opcionalmente crea la rama y el commit en el **repo del producto** que tú mapees en `.env`. Este repositorio del orquestador **siempre permanece en `main`**.
 
-**Repo:** https://github.com/FelipeLisboa/automatizar_flujo_trabajo  
-**SO:** Windows 10/11
+**SO:** Windows 10/11 · Todo lo personal (nombre, rutas, token) va en **`.env`**, nunca hardcodeado.
 
 ---
 
@@ -105,16 +104,50 @@ Si PowerShell bloquea scripts:
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-### 5. Dependencias
+### 5. Dependencias base
 
 ```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 copy .env.example .env
-# Edita .env: USUARIO_LOCAL, rutas, HF_TOKEN si usas pyannote
 ```
 
-### 6. Ollama (IA local)
+`requirements.txt` incluye, entre otras:
+
+| Paquete | Para qué |
+|---------|----------|
+| `sounddevice`, `PyAudioWPatch` | Mic + loopback del sistema (Windows) |
+| `numpy`, `scipy` | Audio |
+| `openai-whisper`, `torch` | Transcripción |
+| `crewai` | Agentes (Ollama) |
+| `keyboard` | Hotkey |
+| `python-dotenv` | Leer `.env` |
+| `omegaconf` | Requerido por pyannote / embeddings de voz |
+
+Edita **`.env`** antes de seguir: `USUARIO_LOCAL`, `PARTICIPANTES_CONOCIDOS`, proyectos (`PROYECTO_*`), y `HF_TOKEN` si usarás pyannote.
+
+### 6. (Opcional) Diarización fina + biblioteca de voces
+
+Si quieres separar varios remotos y guardar huellas de voz (`USE_PYANNOTE=true`):
+
+```powershell
+python -m pip install "pyannote.audio"
+# omegaconf ya viene en requirements.txt; si faltara:
+python -m pip install "omegaconf>=2.3.0"
+```
+
+1. Crea un token en https://huggingface.co/settings/tokens  
+2. Ponlo en `.env`: `HF_TOKEN=hf_...`  
+3. Acepta (logueado en HF) las condiciones de:
+
+- https://huggingface.co/pyannote/speaker-diarization-3.1  
+- https://huggingface.co/pyannote/segmentation-3.0  
+- https://huggingface.co/pyannote/speaker-diarization-community-1  
+- https://huggingface.co/pyannote/embedding  
+
+Sin `omegaconf` o sin token/modelos aceptados, la huella de voz fallará aunque el resto de la app siga funcionando.
+
+### 7. Ollama (IA local)
 
 1. https://ollama.com/download → instalar y dejarlo abierto  
 2. Descargar el modelo:
@@ -124,33 +157,18 @@ ollama pull qwen2.5-coder:7b
 ollama list
 ```
 
-### 7. Audio de Windows
+### 8. Audio de Windows
 
 - Reproducción **por defecto** = por donde suena Teams  
 - Micrófono **por defecto** = el tuyo  
 - Auriculares ayudan a evitar eco en el mic  
-
-### 8. (Opcional) Varios remotos + biblioteca de voces
-
-```powershell
-python -m pip install pyannote.audio
-```
-
-Token HF: `$env:HF_TOKEN = "hf_..."`  
-
-Acepta (logueado) en:
-
-- https://huggingface.co/pyannote/speaker-diarization-3.1  
-- https://huggingface.co/pyannote/segmentation-3.0  
-- https://huggingface.co/pyannote/speaker-diarization-community-1  
-- https://huggingface.co/pyannote/embedding  
 
 ---
 
 ## Configuración — archivo `.env`
 
 Toda la configuración editable vive en **`.env`** (en la raíz del proyecto).  
-`config.py` solo la lee y mantiene aliases/helpers.
+`config.py` solo la lee y mantiene helpers.
 
 1. Copia el ejemplo:
 
@@ -165,8 +183,8 @@ copy .env.example .env
 
 | Variable | Ejemplo | Para qué |
 |----------|---------|----------|
-| `USUARIO_LOCAL` | `Felipe` | Tu nombre (canal mic) |
-| `PARTICIPANTES_CONOCIDOS` | `Felipe,Ana,Carlos` | Sugerencias al escribir nombres (coma) |
+| `USUARIO_LOCAL` | `TuNombre` | Tu nombre (canal mic) |
+| `PARTICIPANTES_CONOCIDOS` | `TuNombre,Ana,Carlos` | Sugerencias al escribir nombres (coma) |
 | `OLLAMA_LLM` | `ollama/qwen2.5-coder:7b` | Modelo de agentes |
 | `WHISPER_MODEL` | `small` | Modelo Whisper |
 | `HOTKEY` | `ctrl+shift+r` | Atajo grabar/parar |
@@ -177,26 +195,26 @@ copy .env.example .env
 | `VOICE_AUTO_APPLY` | `true` | Asignar nombre solo si hay confianza |
 | `VOICE_MATCH_THRESHOLD` | `0.72` | Umbral para sugerir |
 | `VOICE_AUTO_THRESHOLD` | `0.78` | Umbral para auto-asignar |
-| `USE_PYANNOTE` | `true` | Separar varias voces remotas |
-| `PROYECTO_<clave>` | `PROYECTO_mi_app=C:\ruta\repo` | **Cualquier** proyecto mapeado (agrega/quita líneas) |
-| `ALIAS_PROYECTOS` | `vigo=vigo_web,api=vigo_api` | Sinónimos opcionales (coma) |
+| `USE_PYANNOTE` | `false` | Separar varias voces remotas (requiere `pyannote.audio` + token) |
+| `PROYECTO_<clave>` | `PROYECTO_mi_app=C:\ruta\repo` | **Cualquier** proyecto mapeado |
+| `ALIAS_PROYECTOS` | `front=mi_front,api=mi_api` | Sinónimos opcionales (coma) |
 | `HF_TOKEN` | `hf_...` | Token Hugging Face (secreto) |
 
 Valores booleanos: `true` / `false` (también acepta `1`/`0`, `yes`/`no`).
 
-### Proyectos propios (cualquier máquina)
+### Proyectos propios (cualquier máquina / usuario)
 
 En `.env` define **tus** repos con el formato `PROYECTO_<clave>=ruta`:
 
 ```env
-PROYECTO_vigo_web=C:\Users\TU_USUARIO\...\DET_MINCO_PCE_Web
-PROYECTO_mi_crm=C:\Users\TU_USUARIO\Documents\repos\crm
-PROYECTO_nova=D:\codigo\NovaTrack
+PROYECTO_mi_front=C:\Users\TU_USUARIO\Documents\repos\mi_front
+PROYECTO_mi_api=C:\Users\TU_USUARIO\Documents\repos\mi_api
+PROYECTO_novatrack=D:\codigo\NovaTrack
 ```
 
 - La **clave** es lo que verás en el menú y en `docs/`.
-- Puedes agregar o borrar líneas libremente.
-- Opcional: `ALIAS_PROYECTOS=crm=mi_crm,novatrack=nova` para que el audio reconozca sinónimos.
+- Puedes agregar o borrar líneas libremente; no hay proyectos fijos en el código.
+- Opcional: `ALIAS_PROYECTOS=front=mi_front,nova=novatrack` para que el audio reconozca sinónimos.
 - Si mencionan un proyecto **no** mapeado (ej. “proyecto NovaTrack”), se guarda igual en `docs/NovaTrack/` sin Git de producto.
 
 Token HF: puedes ponerlo en `.env` **o** en la sesión:
@@ -204,8 +222,6 @@ Token HF: puedes ponerlo en `.env` **o** en la sesión:
 ```powershell
 $env:HF_TOKEN = "hf_..."
 ```
-
-(La variable de entorno del sistema no la pisa el `.env` por defecto.)
 
 ### Biblioteca de voces (active learning)
 
@@ -218,10 +234,9 @@ $env:HF_TOKEN = "hf_..."
 ## Levantar la app (día a día)
 
 ```powershell
-cd $HOME\Documents\automatizar_flujo_trabajo
+cd <ruta-donde-clonaste>\automatizar_flujo_trabajo
 .\.venv\Scripts\Activate.ps1          # si usas venv
 # Ollama debe estar abierto
-$env:HF_TOKEN = "hf_..."              # solo si usas pyannote / voces
 python main.py
 ```
 
@@ -262,18 +277,15 @@ Fallos tempranos: `docs/_fallidos/<fecha>/`.
 | Agentes fallan | ¿Ollama abierto? ¿`qwen2.5-coder:7b` en `ollama list`? |
 | No se oye Teams | Salida default = dispositivo de Teams |
 | Eco / basura en tu canal | Baja volumen auriculares; habla después del remoto |
-| pyannote 403 | Acepta los 4 modelos HF + token |
-| No reconoce voces | Primera vez hay que nombrar; acepta `pyannote/embedding` |
+| pyannote 403 | Acepta los 4 modelos HF + token en `.env` |
+| `ModuleNotFoundError: omegaconf` | `python -m pip install "omegaconf>=2.3.0"` |
+| No reconoce voces | Primera vez hay que nombrar; acepta `pyannote/embedding` + `omegaconf` |
 | Hotkey muerto | Admin o usa `grabar`/`parar` |
 
 ---
 
 ## Checklist
 
-**Primera vez:** Git · Python · clone · venv · `pip install -r requirements.txt` · Ollama + modelo · editar `config.py` · (opcional) pyannote + token  
+**Primera vez:** Git · Python · clone · venv · `pip install -r requirements.txt` · Ollama + modelo · copiar y editar `.env` · (opcional) `pip install pyannote.audio` + `HF_TOKEN` + `USE_PYANNOTE=true`
 
-**Cada reunión:** Ollama · venv · `$env:HF_TOKEN` si aplica · `python main.py` · grabar/parar · usar el prompt en Cursor  
-
----
-
-*https://github.com/FelipeLisboa/automatizar_flujo_trabajo*
+**Cada reunión:** Ollama · venv · `python main.py` · grabar/parar · usar el prompt en Cursor  

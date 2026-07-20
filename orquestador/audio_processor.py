@@ -574,14 +574,37 @@ def transcribir_local(archivo_audio: str) -> str:
 
 
 def _corregir_transcripcion(texto: str) -> str:
-    """Ajustes ligeros de fonética / nombres de producto."""
+    """Ajustes ligeros de fonética / nombres de producto + anti-eco del initial_prompt."""
     import re
-    from config import CORRECCIONES_TRANSCRIPCION
+    from config import CORRECCIONES_TRANSCRIPCION, WHISPER_INITIAL_PROMPT
 
-    out = texto
+    out = (texto or "").strip()
+    if not out:
+        return ""
+
+    # Eco típico: Whisper repite el initial_prompt (o un prompt viejo con nombres de producto)
+    if re.match(
+        r"^reuni[oó]n\s+(t[eé]cnica|de\s+desarrollo)\s+sobre\b",
+        out,
+        flags=re.IGNORECASE,
+    ) and len(out.split()) <= 12:
+        return ""
+
+    prompt = (WHISPER_INITIAL_PROMPT or "").strip()
+    if prompt:
+        pl = prompt.lower()
+        ol = out.lower()
+        if ol == pl or (pl in ol and len(out) <= len(prompt) + 15):
+            return ""
+        palabras = prompt.split()
+        if len(palabras) >= 4:
+            prefijo = " ".join(palabras[:5]).lower()
+            if ol.startswith(prefijo) and len(out.split()) <= 10:
+                return ""
+
     for patron, reemplazo in CORRECCIONES_TRANSCRIPCION:
         out = re.sub(patron, reemplazo, out, flags=re.IGNORECASE)
-    return out
+    return out.strip()
 
 
 def esta_grabando() -> bool:

@@ -15,8 +15,8 @@ DOCS_DIR = BASE_DIR / "docs"
 TEMP_DIR = BASE_DIR / ".tmp_audio"
 FALLIDOS_DIR = DOCS_DIR / "_fallidos"
 
-# Carga .env de la raíz del proyecto (no pisa variables ya definidas en el sistema)
-load_dotenv(BASE_DIR / ".env", override=False)
+# Carga .env de la raíz (pisa valores vacíos del entorno para que HF_TOKEN del archivo cuente)
+load_dotenv(BASE_DIR / ".env", override=True)
 
 
 def _env(key: str, default: str = "") -> str:
@@ -54,15 +54,15 @@ OLLAMA_LLM = _env("OLLAMA_LLM", "ollama/qwen2.5-coder:7b")
 WHISPER_MODEL = _env("WHISPER_MODEL", "small")
 WHISPER_INITIAL_PROMPT = _env(
     "WHISPER_INITIAL_PROMPT",
-    "Reunión técnica sobre VIGO, DET_MINCO, PCE Web, PCM Api, pipelines, "
-    "feature, timeout y desarrollo de software.",
+    "Reunión de desarrollo de software en español. Tareas, features, dashboard, "
+    "filtros, paginación, commits y pull requests.",
 )
 
 RECORDING_HEARTBEAT_SEC = _env_int("RECORDING_HEARTBEAT_SEC", 10)
 HOTKEY = _env("HOTKEY", "ctrl+shift+r")
 AUTO_GIT_COMMIT = _env_bool("AUTO_GIT_COMMIT", True)
 
-USUARIO_LOCAL = _env("USUARIO_LOCAL", "Felipe")
+USUARIO_LOCAL = _env("USUARIO_LOCAL", "Usuario")
 NOMBRAR_REMOTOS = _env_bool("NOMBRAR_REMOTOS", True)
 USAR_RECONOCIMIENTO_VOZ = _env_bool("USAR_RECONOCIMIENTO_VOZ", True)
 VOICE_MATCH_THRESHOLD = _env_float("VOICE_MATCH_THRESHOLD", 0.72)
@@ -86,15 +86,12 @@ CLAVE_ORQUESTADOR = "automatizar_flujo_trabajo"
 
 def _cargar_rutas_proyectos() -> dict[str, Path]:
     """
-    Proyectos custom desde .env. Cualquier persona puede agregar los suyos:
+    Proyectos custom desde .env. Cualquier usuario define los suyos:
 
-      PROYECTO_vigo_web=C:\\ruta\\al\\repo
-      PROYECTO_mi_app=C:\\otra\\ruta
+      PROYECTO_mi_front=C:\\ruta\\al\\repo
+      PROYECTO_mi_api=C:\\otra\\ruta
 
-    Compatibilidad con nombres viejos:
-      RUTA_VIGO_WEB=...
-      RUTA_VIGO_API=...
-      RUTA_PIPELINES=...
+    También acepta variables legacy RUTA_<CLAVE>=ruta (opcional).
     """
     rutas: dict[str, Path] = {CLAVE_ORQUESTADOR: BASE_DIR}
 
@@ -110,15 +107,17 @@ def _cargar_rutas_proyectos() -> dict[str, Path]:
             continue
         rutas[clave] = Path(ruta)
 
-    # Legacy (por si alguien aún usa RUTA_*)
-    legacy = {
-        "vigo_web": _env("RUTA_VIGO_WEB"),
-        "vigo_api": _env("RUTA_VIGO_API"),
-        "pipelines": _env("RUTA_PIPELINES"),
-    }
-    for clave, ruta in legacy.items():
-        if ruta and clave not in rutas:
-            rutas[clave] = Path(ruta)
+    # Legacy: RUTA_<CLAVE>=ruta (cualquier clave, no hardcodeada)
+    for key, value in os.environ.items():
+        if not key.startswith("RUTA_"):
+            continue
+        clave = key[len("RUTA_") :].strip().lower()
+        ruta = (value or "").strip().strip('"').strip("'")
+        if not clave or not ruta or clave in rutas or clave == CLAVE_ORQUESTADOR:
+            continue
+        if clave in ("general",):
+            continue
+        rutas[clave] = Path(ruta)
 
     return rutas
 
@@ -127,10 +126,10 @@ def _cargar_aliases(rutas: dict[str, Path]) -> dict[str, str]:
     """
     Aliases desde .env:
 
-      ALIAS_PROYECTOS=vigo=vigo_web,front=vigo_web,api=vigo_api
+      ALIAS_PROYECTOS=front=mi_front,api=mi_api
 
     Además se generan aliases automáticos por cada clave mapeada
-    (ej. vigo_web → vigo_web, vigo web).
+    (ej. mi_front → mi_front, mi front; prefijo mi_front → mi si no choca).
     """
     aliases: dict[str, str] = {"general": CLAVE_ORQUESTADOR}
 
@@ -140,7 +139,7 @@ def _cargar_aliases(rutas: dict[str, Path]) -> dict[str, str]:
             continue
         aliases[clave] = clave
         aliases[clave.replace("_", " ")] = clave
-        # Prefijo antes del primer _ (vigo_web → vigo) solo si no choca
+        # Prefijo antes del primer _ (mi_front → mi) solo si no choca
         if "_" in clave:
             pref = clave.split("_", 1)[0]
             if pref and pref not in aliases:

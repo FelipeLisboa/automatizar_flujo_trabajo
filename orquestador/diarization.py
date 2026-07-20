@@ -115,7 +115,7 @@ def _suprimir_eco_sistema(
 ) -> np.ndarray | None:
     """
     Atenúa el mic cuando el sistema suena fuerte (bleed de auriculares/altavoces).
-    Evita que Whisper invente basura tipo 'CPU Master / Super hero' en el canal Felipe.
+    Evita que Whisper invente basura tipo 'CPU Master / Super hero' en el canal del mic.
     """
     if audio_mic is None or audio_sys is None:
         return audio_mic

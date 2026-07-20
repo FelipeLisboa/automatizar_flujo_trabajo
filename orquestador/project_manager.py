@@ -82,20 +82,27 @@ def _sanear_markdown_es(texto: str) -> str:
     """Quita mezclas típicas de otros alfabetos que a veces inventa el LLM."""
     if not texto:
         return texto
-    # Sustituciones frecuentes (ruso → español)
+    # Sustituciones frecuentes (ruso / chino → español)
     reemplazos = {
         "фильтр": "filtro",
         "Фильтр": "Filtro",
         "страница": "página",
         "дашборд": "dashboard",
         "проект": "proyecto",
+        "前端": "frontend",
+        "后端": "backend",
+        "项目": "proyecto",
+        "功能": "funcionalidad",
     }
     out = texto
     for mal, bien in reemplazos.items():
         out = out.replace(mal, bien)
-    # Eliminar restos de cirílico sueltos
+    # Cirílico
     out = re.sub(r"[\u0400-\u04FF]+", "", out)
+    # CJK (chino/japonés/coreano)
+    out = re.sub(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+", "", out)
     out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"proyecto\s*\(frontend\)", "frontend", out, flags=re.IGNORECASE)
     return out
 
 
@@ -116,7 +123,8 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
             "  [Remoto_N mm:ss] o un nombre → hablante remoto separado\n\n"
             "Instrucciones:\n"
             "1. Identifica el proyecto SOLO si se nombra de forma explícita. "
-            "Claves: 'vigo_web', 'vigo_api', 'pipelines' o 'General'.\n"
+            "Usa una de las claves listadas arriba, un nombre libre si aparece en el audio, "
+            "o 'General' si no queda claro.\n"
             "2. Diseña una rama Git corta: 'feature/nombre-del-cambio'. "
             "Si suena a 'FUTURE' o 'feature, barra', interpreta 'feature/...'.\n"
             "3. Extrae compromisos como lista de OBJETOS. Cada objeto tiene:\n"

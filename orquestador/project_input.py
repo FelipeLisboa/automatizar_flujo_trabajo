@@ -35,7 +35,7 @@ def detectar_menciones(texto: str) -> dict[str, list[str]]:
     """
     t = _texto_norm(texto)
     hallados: dict[str, list[str]] = {}
-    # Probar aliases más largos primero (det_minco_pce_web antes que vigo)
+    # Probar aliases más largos primero (mi_app_web antes que mi)
     candidatos: list[tuple[str, str]] = []
     for alias, clave in ALIAS_PROYECTOS.items():
         if clave == CLAVE_ORQUESTADOR or clave not in RUTAS_PROYECTOS:
@@ -90,18 +90,21 @@ def detectar_nombre_libre(texto: str) -> str | None:
 def inferir_proyecto_desde_texto(texto: str) -> tuple[str | None, str]:
     """
     Retorna (clave_o_None, motivo).
-    None → preguntar (salvo auto-aceptar sugerencia del agente / nombre libre).
+    Prioriza 'proyecto <Nombre>' explícito sobre aliases cortos (evita falsos positivos
+    por alucinación del initial_prompt de Whisper).
     """
+    libre = detectar_nombre_libre(texto)
     menciones = detectar_menciones(texto)
+
+    if libre:
+        # "proyecto MiApp" gana aunque haya un alias corto suelto
+        return libre, f"nombre libre mencionado en audio ({libre})"
+
     if len(menciones) == 1:
         clave = next(iter(menciones))
         return clave, f"mencionado explícitamente ({', '.join(menciones[clave][:3])})"
     if len(menciones) > 1:
         return None, f"conflicto: se mencionaron {', '.join(menciones.keys())}"
-
-    libre = detectar_nombre_libre(texto)
-    if libre:
-        return libre, f"nombre libre mencionado en audio ({libre})"
 
     return None, "no se detectó un proyecto mapeado en el audio"
 
@@ -109,8 +112,8 @@ def inferir_proyecto_desde_texto(texto: str) -> tuple[str | None, str]:
 def _limpiar_entrada_proyecto(entrada: str) -> str:
     """
     Evita que se pegue el ejemplo del prompt:
-      '1 / vigo_web / NovaTrack' → 'NovaTrack'
-      '1 / NovaTrack / NovaTrack' → 'NovaTrack'
+      '1 / mi_front / MiApp' → 'MiApp'
+      '1 / MiApp / MiApp' → 'MiApp'
     """
     crudo = (entrada or "").strip()
     if not crudo:
@@ -219,7 +222,7 @@ def _agente_mencionado_en_audio(texto: str, proyecto_agente: str) -> bool:
 def resolver_proyecto_interactivo(transcripcion: str, proyecto_agente: str) -> str:
     """
     Decide el proyecto:
-      1) Señales explícitas en el audio (VIGO / pipelines)
+      1) Señales explícitas en el audio (claves/aliases mapeados o 'proyecto Nombre')
       2) Nombre libre del agente si también aparece en el audio (auto)
       3) Si hay duda → pregunta por consola (Enter = sugerencia)
     """

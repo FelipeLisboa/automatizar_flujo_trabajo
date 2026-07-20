@@ -162,7 +162,11 @@ def _get_embedding_inference():
             _embedding_inference = Inference(model, window="whole")
             return _embedding_inference
     except Exception as e:
-        print(f"ℹ️ Reconocimiento de voz no disponible ({e}). Solo nombrado manual.")
+        print(
+            f"ℹ️ Reconocimiento de voz no disponible ({e}). "
+            "Sugerencia: pip install omegaconf pyannote.audio "
+            "y acepta https://huggingface.co/pyannote/embedding"
+        )
         _embedding_inference = False  # type: ignore
         return None
 
@@ -307,7 +311,8 @@ def enrolar_voz(
         _registrar_nombre_en_meta(nombre, con_voz=False, citas=citas)
         print(
             f"      📝 Nombre guardado sin huella de voz: {nombre}\n"
-            f"         (revisa HF_TOKEN y el modelo pyannote/embedding)"
+            f"         Causa habitual: falta dependencia (omegaconf) o modelo embedding.\n"
+            f"         Prueba: python -m pip install omegaconf"
         )
         return False
 
