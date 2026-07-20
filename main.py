@@ -27,7 +27,11 @@ from git_automation import aplicar_cambios_locales
 from hotkeys import detener_hotkey, iniciar_hotkey
 from project_input import resolver_proyecto_interactivo
 from project_manager import ejecutar_flujo_agentes
-from task_ownership import confirmar_responsables_consola, resumen_tareas_markdown
+from task_ownership import (
+    aplicar_claims_desde_diarizacion,
+    confirmar_responsables_consola,
+    resumen_tareas_markdown,
+)
 
 _estado_lock = threading.Lock()
 _grabando = False
@@ -100,7 +104,11 @@ def procesar_flujo_completo(captura: dict) -> None:
         archivos_menc = resultado.get("archivos_mencionados") or []
 
         nombre_proyecto = resolver_proyecto_interactivo(texto_reunion, nombre_proyecto)
-        tareas = confirmar_responsables_consola(tareas if isinstance(tareas, list) else [])
+        tareas = aplicar_claims_desde_diarizacion(
+            tareas if isinstance(tareas, list) else [],
+            texto_diarizado,
+        )
+        tareas = confirmar_responsables_consola(tareas)
         bloque_resp = resumen_tareas_markdown(tareas)
         if bloque_resp.strip() and "## Responsables por tarea" not in contenido_markdown:
             contenido_markdown = contenido_markdown.rstrip() + "\n\n" + bloque_resp

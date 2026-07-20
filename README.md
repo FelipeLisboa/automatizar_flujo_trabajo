@@ -65,17 +65,21 @@ qwen2.5-coder:7b
 
 ### Extra opcional: pyannote (varios remotos)
 
-Por defecto ya separas **tú (mic) vs Remoto (PC)**. Si quieres separar a varias personas en el canal de Teams:
+Con `USE_PYANNOTE = True` (recomendado en Teams con varias personas) el canal del PC se separa en `Remoto_1`, `Remoto_2`, …
 
-1. Token en [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (tipo Read).
-2. Acepta condiciones en:
+1. `USE_PYANNOTE = True` en `config.py` (ya viene así si lo activaste)
+2. En cada sesión de PowerShell: `$env:HF_TOKEN = "hf_..."` (no lo subas a git)
+3. Acepta condiciones (logueado) en:
    - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
    - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
-3. Instala: `python -m pip install pyannote.audio`
-4. En `config.py` pon `HF_TOKEN = "hf_..."` (o `$env:HF_TOKEN`).
-5. Opcional: lista nombres en `PARTICIPANTES_CONOCIDOS` (después de ti) para mapear `Remoto_1`, `Remoto_2`, …
+   - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
+4. `python -m pip install pyannote.audio`
+5. Pon nombres del equipo en `PARTICIPANTES_CONOCIDOS` (después de Felipe) para mapear Remoto_N → Ana, Carlos, etc.
 
-Sin token, el flujo sigue funcionando con Felipe vs Remoto.
+La primera corrida descarga modelos y puede tardar; verás `mic_sys+pyannote` si funcionó.  
+Si falla, cae a Remoto único sin romper el flujo.
+
+**Prueba con ElevenLabs:** con una sola voz remota seguirás viendo un solo remoto (normal). La separación real se nota con 2+ personas hablando por Teams.
 
 ---
 
@@ -263,7 +267,8 @@ Confirmar crear rama: feature/ejemplo? [Y/N]:
 | `USUARIO_LOCAL` | Tu nombre en la diarización (canal mic) | `"Felipe"` |
 | `PARTICIPANTES_CONOCIDOS` | Nombres frecuentes / mapeo pyannote | `["Felipe", …]` |
 | `CONFIRMAR_RESPONSABLES` | Preguntar dueño si falta | `True` |
-| `HF_TOKEN` | Token Hugging Face (pyannote) | `""` o `hf_…` |
+| `USE_PYANNOTE` | Separar varios remotos en Teams | `True` |
+| `HF_TOKEN` | Token Hugging Face (solo si USE_PYANNOTE) | env `$env:HF_TOKEN` |
 | `RUTAS_PROYECTOS` | Mapa clave → carpeta Git | editar al agregar repos |
 | `ALIAS_PROYECTOS` | Sinónimos → clave | editar según nombres de reunión |
 
@@ -304,7 +309,7 @@ CONFIRMAR_RESPONSABLES = False
 | Proyecto sale como VIGO sin haberlo dicho | Debe pedir consola; actualiza si tienes versión vieja |
 | Nombre libre cae en carpeta del orquestador | Debe usar `slug_carpeta_proyecto`; actualiza el código |
 | Agentes fallan | ¿Ollama abierto? ¿Modelo `qwen2.5-coder:7b` descargado? |
-| pyannote falla / 401 | Token válido + condiciones aceptadas en HF; sin token sigue Felipe vs Remoto |
+| pyannote falla / 403 | Acepta también `speaker-diarization-community-1`; o deja `USE_PYANNOTE = False` |
 | Transcripción floja | Habla más cerca; Whisper `small` ya ayuda; opcional subir a `medium` |
 | Falló a mitad | Mira `docs/_fallidos/` — ahí está el WAV |
 

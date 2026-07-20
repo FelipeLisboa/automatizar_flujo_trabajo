@@ -32,20 +32,28 @@ AUTO_GIT_COMMIT = True
 # Quién eres tú en las reuniones (canal micrófono en la diarización)
 USUARIO_LOCAL = "Felipe"
 
-# Personas frecuentes. Si usas pyannote, Remoto_N puede mapearse a estos nombres (en orden).
+# Diarización fina del canal remoto (varios speakers en Teams).
+# True = intenta separar Remoto_1, Remoto_2, … (recomendado en Teams real).
+# Requisitos:
+# 1) $env:HF_TOKEN = "hf_..."  (no lo subas a git)
+# 2) pip install pyannote.audio
+# 3) Aceptar condiciones (logueado en HF) en:
+#    - https://huggingface.co/pyannote/speaker-diarization-3.1
+#    - https://huggingface.co/pyannote/segmentation-3.0
+#    - https://huggingface.co/pyannote/speaker-diarization-community-1
+USE_PYANNOTE = True
+HF_TOKEN = ""
+
+# Personas frecuentes. Remoto_1, Remoto_2… de pyannote se mapean a estos
+# nombres (en orden, excluyendo USUARIO_LOCAL). Ej: Ana, Carlos → Remoto_1=Ana.
 PARTICIPANTES_CONOCIDOS: list[str] = [
     "Felipe",
+    # "Ana",
+    # "Carlos",
 ]
 
 # Si True, pregunta por consola el responsable de cada tarea sin dueño claro
 CONFIRMAR_RESPONSABLES = True
-
-# Token Hugging Face para diarización fina del canal remoto (opcional).
-# 1) Crea token en https://huggingface.co/settings/tokens
-# 2) Acepta condiciones de: https://huggingface.co/pyannote/speaker-diarization-3.1
-# 3) pip install pyannote.audio
-# 4) Pon el token aquí o en la variable de entorno HF_TOKEN
-HF_TOKEN = ""
 
 # Clave del orquestador: solo docs locales, sin ramas Git en este repo
 CLAVE_ORQUESTADOR = "automatizar_flujo_trabajo"
