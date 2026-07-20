@@ -6,5 +6,6 @@ PyAudioWPatch>=0.2.12.6
 crewai>=0.80.0
 keyboard>=0.13.5
 torch
+python-dotenv>=1.0.0
 # Opcional — diarización fina del canal remoto (varios speakers en Teams):
 # pyannote.audio

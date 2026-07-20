@@ -169,7 +169,9 @@ def _get_embedding_inference():
 
 def _embedding_de_audio(audio: np.ndarray | None, rate: int) -> np.ndarray | None:
     inf = _get_embedding_inference()
-    if not inf or audio is None or audio.size < rate:
+    if inf is None or inf is False:
+        return None
+    if audio is None or not isinstance(audio, np.ndarray) or audio.size < rate:
         return None
     try:
         import torch
@@ -180,7 +182,11 @@ def _embedding_de_audio(audio: np.ndarray | None, rate: int) -> np.ndarray | Non
             emb = inf({"waveform": wave, "sample_rate": rate})
         if hasattr(emb, "numpy"):
             emb = emb.numpy()
-        emb = np.asarray(emb, dtype=np.float32).reshape(-1)
+        # Algunos backends devuelven (1, D) o (frames, D): unificar a vector 1D
+        emb = np.asarray(emb, dtype=np.float32)
+        if emb.ndim > 1:
+            emb = np.mean(emb.reshape(-1, emb.shape[-1]), axis=0)
+        emb = emb.reshape(-1)
         norm = float(np.linalg.norm(emb))
         if norm < 1e-8:
             return None
@@ -190,7 +196,14 @@ def _embedding_de_audio(audio: np.ndarray | None, rate: int) -> np.ndarray | Non
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+    a = np.asarray(a, dtype=np.float32).reshape(-1)
+    b = np.asarray(b, dtype=np.float32).reshape(-1)
+    n = min(a.size, b.size)
+    if n == 0:
+        return 0.0
+    a, b = a[:n], b[:n]
+    denom = float(np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
+    return float(np.dot(a, b) / denom)
 
 
 def _mejor_match(
@@ -356,14 +369,20 @@ def identificar_remotos_interactivo(
 
     for spk in remotos:
         citas = _snippets_por_speaker(segmentos, spk)
-        sug, sim, emb = reconocer_remoto(
-            audio_sys, segmentos, spk, TARGET_RATE, ya_asignados=ya_asignados
-        )
+        try:
+            sug, sim, emb = reconocer_remoto(
+                audio_sys, segmentos, spk, TARGET_RATE, ya_asignados=ya_asignados
+            )
+        except Exception as e:
+            print(f"  ⚠️ Reconocimiento de voz falló para {spk} ({e}). Nombrado manual.")
+            sug, sim, emb = None, 0.0, None
+        sim = float(sim) if sim is not None else 0.0
 
         # --- Active learning: auto-aplicar si hay confianza alta ---
         if (
             USAR_RECONOCIMIENTO_VOZ
             and VOICE_AUTO_APPLY
+            and isinstance(sug, str)
             and sug
             and sim >= VOICE_AUTO_THRESHOLD
         ):
@@ -388,7 +407,7 @@ def identificar_remotos_interactivo(
             print("      (sin texto)")
 
         prompt = "      Nombre"
-        if sug:
+        if isinstance(sug, str) and sug:
             prompt += f" [{sug} · voz {sim:.0%} · Enter=aceptar]"
         prompt += " (o escribe persona nueva): "
 
@@ -400,7 +419,7 @@ def identificar_remotos_interactivo(
             continue
 
         if not entrada:
-            nombre = sug if sug else spk
+            nombre = sug if isinstance(sug, str) and sug else spk
         elif entrada.lower() in ("s", "skip", "remoto"):
             nombre = spk
         else:

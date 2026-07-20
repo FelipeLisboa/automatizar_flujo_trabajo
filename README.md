@@ -34,42 +34,38 @@ grabar (mic + sistema)
 automatizar_flujo_trabajo/
 │
 ├── main.py                 ← arranque: python main.py
-├── config.py               ← TODA la configuración (edita aquí)
+├── config.py               ← lee el .env + helpers
+├── .env                    ← TU configuración (no se sube a git)
+├── .env.example            ← plantilla para copiar
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
 │
-├── orquestador/            ← código interno (no hace falta tocarlo a diario)
-│   ├── audio_processor.py  ← captura mic + loopback, Whisper
-│   ├── diarization.py      ← mic=tú / sys=remotos + pyannote
-│   ├── speaker_registry.py ← nombres Remoto_N + biblioteca de voces
-│   ├── task_ownership.py   ← responsables de tareas
-│   ├── project_input.py    ← detección / consola de proyecto
-│   ├── project_manager.py  ← agentes CrewAI
-│   ├── docs_manager.py     ← escribe docs/
-│   ├── git_automation.py   ← rama/commit en repos producto
-│   └── hotkeys.py          ← Ctrl+Shift+R
+├── orquestador/            ← código interno
+│   ├── audio_processor.py
+│   ├── diarization.py
+│   ├── speaker_registry.py
+│   ├── task_ownership.py
+│   ├── project_input.py
+│   ├── project_manager.py
+│   ├── docs_manager.py
+│   ├── git_automation.py
+│   └── hotkeys.py
 │
 ├── docs/                   ← salidas de cada reunión
-│   └── <proyecto>/<fecha>/
-│         prompt_cursor.md
-│         transcripcion.txt
-│         transcripcion_diarizada.txt
-│         meta.json
-│         audio_reunion.wav
-│
-├── .voice_profiles/        ← biblioteca de voces (local, no se sube a git)
-├── .tmp_audio/             ← WAV temporales mientras grabas
-└── .venv/                  ← entorno virtual (recomendado)
+├── .voice_profiles/        ← biblioteca de voces (local)
+├── .tmp_audio/             ← WAV temporales
+└── .venv/                  ← entorno virtual
 ```
 
-| Carpeta / archivo | ¿Lo editas? | Qué es |
-|-------------------|-------------|--------|
-| `config.py` | **Sí** | Tu nombre, rutas, flags de voz/Git |
+| Archivo | ¿Lo editas? | Qué es |
+|---------|-------------|--------|
+| `.env` | **Sí** | Toda tu configuración (nombre, rutas, flags, token) |
+| `.env.example` | Consulta | Plantilla sin secretos |
+| `config.py` | Casi nunca | Carga el `.env` |
 | `main.py` | Casi nunca | Punto de entrada |
 | `orquestador/` | Solo si desarrollas | Lógica interna |
 | `docs/` | Consultas | Resultados de reuniones |
-| `.voice_profiles/` | Automático | Perfiles Ana.npy, Carlos.npy, … |
 
 ---
 
@@ -114,6 +110,8 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+copy .env.example .env
+# Edita .env: USUARIO_LOCAL, rutas, HF_TOKEN si usas pyannote
 ```
 
 ### 6. Ollama (IA local)
@@ -149,56 +147,57 @@ Acepta (logueado) en:
 
 ---
 
-## Configuración (`config.py`) — qué es cada “flag”
+## Configuración — archivo `.env`
 
-Un **flag** es una opción True/False o un número en `config.py`. No es un archivo aparte: abres `config.py` y cambias el valor.
+Toda la configuración editable vive en **`.env`** (en la raíz del proyecto).  
+`config.py` solo la lee y mantiene aliases/helpers.
 
-### Identidad y equipo
+1. Copia el ejemplo:
+
+```powershell
+copy .env.example .env
+```
+
+2. Edita `.env` con Bloc de notas / Cursor.  
+3. **No subas `.env` a git** (ya está en `.gitignore`). Sí se versiona `.env.example`.
+
+### Variables principales
 
 | Variable | Ejemplo | Para qué |
 |----------|---------|----------|
-| `USUARIO_LOCAL` | `"Felipe"` | Tu nombre en la diarización (canal mic) |
-| `PARTICIPANTES_CONOCIDOS` | `["Felipe", "Ana"]` | Solo **sugerencias** al escribir nombres (no asigna solo por orden) |
+| `USUARIO_LOCAL` | `Felipe` | Tu nombre (canal mic) |
+| `PARTICIPANTES_CONOCIDOS` | `Felipe,Ana,Carlos` | Sugerencias al escribir nombres (coma) |
+| `OLLAMA_LLM` | `ollama/qwen2.5-coder:7b` | Modelo de agentes |
+| `WHISPER_MODEL` | `small` | Modelo Whisper |
+| `HOTKEY` | `ctrl+shift+r` | Atajo grabar/parar |
+| `AUTO_GIT_COMMIT` | `true` | Ofrecer Git en repo producto |
+| `CONFIRMAR_RESPONSABLES` | `true` | Preguntar dueño si falta |
+| `NOMBRAR_REMOTOS` | `true` | Identificar Remoto_N tras grabar |
+| `USAR_RECONOCIMIENTO_VOZ` | `true` | Biblioteca `.voice_profiles/` |
+| `VOICE_AUTO_APPLY` | `true` | Asignar nombre solo si hay confianza |
+| `VOICE_MATCH_THRESHOLD` | `0.72` | Umbral para sugerir |
+| `VOICE_AUTO_THRESHOLD` | `0.78` | Umbral para auto-asignar |
+| `USE_PYANNOTE` | `true` | Separar varias voces remotas |
+| `HF_TOKEN` | `hf_...` | Token Hugging Face (secreto) |
+| `RUTA_VIGO_WEB` | ruta absoluta | Repo front VIGO |
+| `RUTA_VIGO_API` | ruta absoluta | Repo API VIGO |
+| `RUTA_PIPELINES` | ruta absoluta | Repo pipelines |
+
+Valores booleanos: `true` / `false` (también acepta `1`/`0`, `yes`/`no`).
+
+Token HF: puedes ponerlo en `.env` **o** en la sesión:
+
+```powershell
+$env:HF_TOKEN = "hf_..."
+```
+
+(La variable de entorno del sistema no la pisa el `.env` por defecto.)
 
 ### Biblioteca de voces (active learning)
 
-| Variable | Default | Para qué |
-|----------|---------|----------|
-| `NOMBRAR_REMOTOS` | `True` | Tras grabar, identificar Remoto_N (auto o pregunta) |
-| `USAR_RECONOCIMIENTO_VOZ` | `True` | Usar `.voice_profiles/` para reconocer voces |
-| `VOICE_AUTO_APPLY` | `True` | Si la voz es muy parecida → asigna el nombre **sin preguntar** |
-| `VOICE_MATCH_THRESHOLD` | `0.72` | Similitud mínima para **sugerir** (0–1) |
-| `VOICE_AUTO_THRESHOLD` | `0.78` | Similitud mínima para asignar **automático** |
-
-**Cómo se usa en la práctica**
-
-1. Primera vez que habla Ana → ves citas de `Remoto_1` → escribes `Ana` → se crea `.voice_profiles/Ana.npy`.  
-2. Próxima reunión → si la voz coincide (≥ 0.78) → `Remoto_1 → Ana` solo, y el perfil se refuerza.  
-3. Persona nueva → no hay match → te pregunta → escribes el nombre → nuevo perfil. Se puede repetir indefinidamente.
-
-Si `VOICE_AUTO_APPLY = False`, siempre pregunta (aunque sugiera el nombre).  
-Si `USAR_RECONOCIMIENTO_VOZ = False`, solo nombrado manual (sin biblioteca).
-
-### Diarización remota (pyannote)
-
-| Variable | Default | Para qué |
-|----------|---------|----------|
-| `USE_PYANNOTE` | `True` | Separar varias voces en el audio de Teams (`Remoto_1`, `Remoto_2`, …) |
-| `HF_TOKEN` | `""` | Mejor usar `$env:HF_TOKEN` (no subas el token a git) |
-
-Sin pyannote sigue funcionando: tú vs un solo `Remoto`.
-
-### Whisper, agentes, Git
-
-| Variable | Default | Para qué |
-|----------|---------|----------|
-| `WHISPER_MODEL` | `"small"` | Modelo de transcripción (`medium` = más preciso/lento) |
-| `OLLAMA_LLM` | `"ollama/qwen2.5-coder:7b"` | Modelo de los agentes |
-| `AUTO_GIT_COMMIT` | `True` | Ofrecer crear rama/commit en repo de producto |
-| `CONFIRMAR_RESPONSABLES` | `True` | Preguntar dueño de tarea si falta |
-| `HOTKEY` | `"ctrl+shift+r"` | Atajo grabar/parar |
-| `RECORDING_HEARTBEAT_SEC` | `10` | Cada cuántos segundos muestra `🔴 mm:ss` |
-| `RUTAS_PROYECTOS` | rutas locales | Mapa clave → carpeta Git de cada producto |
+1. Primera vez → escribes el nombre de `Remoto_N` → se crea perfil en `.voice_profiles/`.  
+2. Próximas → si la voz coincide (≥ `VOICE_AUTO_THRESHOLD`) se asigna **sola**.  
+3. Persona nueva → pregunta → nuevo perfil. Se puede repetir sin límite.
 
 ---
 
