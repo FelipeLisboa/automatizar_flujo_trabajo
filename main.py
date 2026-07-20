@@ -84,9 +84,14 @@ def procesar_flujo_completo(captura: dict) -> None:
         preview = texto_reunion.replace("\n", " | ")[:220]
         print(f"📝 Diarizada ({resultado_tx.get('modo')}): {preview}...")
 
+        # No usar `array or ...`: NumPy no admite truth-value de arrays
+        audio_sys = resultado_tx.get("audio_sys")
+        if audio_sys is None:
+            audio_sys = captura.get("audio_sys")
+
         resultado_tx = identificar_remotos_interactivo(
             resultado_tx,
-            audio_sys=resultado_tx.get("audio_sys") or captura.get("audio_sys"),
+            audio_sys=audio_sys,
         )
         texto_diarizado = (resultado_tx.get("diarizada") or "").strip()
         texto_plano = (resultado_tx.get("plana") or "").strip()
