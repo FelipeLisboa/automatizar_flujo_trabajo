@@ -1,7 +1,7 @@
 # main.py
 """
 Asistente de reuniones local (orquestador):
-  grabar → Whisper → CrewAI → docs/ local → (opcional) rama+commit en OTRO proyecto
+  grabar → diarización (mic/sys) → Whisper → CrewAI → docs/ → Git opcional
 Este repositorio permanece siempre en main.
 """
 from __future__ import annotations
@@ -19,65 +19,75 @@ from audio_processor import (
     detener_grabacion_manual,
     esta_grabando,
     iniciar_grabacion_manual,
-    transcribir_local,
 )
 from config import AUTO_GIT_COMMIT, CLAVE_ORQUESTADOR, DOCS_DIR, HOTKEY, RUTAS_PROYECTOS, WHISPER_MODEL
+from diarization import transcribir_desde_captura
 from docs_manager import guardar_fallo, guardar_sesion
 from git_automation import aplicar_cambios_locales
 from hotkeys import detener_hotkey, iniciar_hotkey
 from project_input import resolver_proyecto_interactivo
 from project_manager import ejecutar_flujo_agentes
+from task_ownership import confirmar_responsables_consola, resumen_tareas_markdown
 
 _estado_lock = threading.Lock()
 _grabando = False
 _procesando = False
 _salir = False
-_pending_audio: str | None = None
+_pending_captura: dict | None = None
 
 
-def _eliminar_temporal(archivo_audio: str | None) -> None:
-    if archivo_audio and os.path.exists(archivo_audio):
-        try:
-            os.remove(archivo_audio)
-            print(f"🗑️ Audio temporal eliminado: {archivo_audio}\n")
-        except OSError as e:
-            print(f"⚠️ No se pudo eliminar el audio temporal: {e}\n")
+def _eliminar_temporales(captura: dict | None) -> None:
+    if not captura:
+        return
+    for key in ("mix", "mic", "sys"):
+        ruta = captura.get(key)
+        if ruta and os.path.exists(ruta):
+            try:
+                os.remove(ruta)
+            except OSError:
+                pass
+    print("🗑️ Audio temporal eliminado.\n")
 
 
-def procesar_flujo_completo(archivo_audio: str) -> None:
-    """Transcribe → agentes → docs local → confirmación de rama en repo de producto."""
+def procesar_flujo_completo(captura: dict) -> None:
+    """Diariza → agentes → docs → Git opcional."""
     conservado = False
+    archivo_mix = captura.get("mix") or ""
     try:
-        print(f"🎙️ Transcribiendo (Whisper '{WHISPER_MODEL}')...")
-        texto_reunion = transcribir_local(archivo_audio)
+        print(f"🎙️ Transcribiendo con diarización (Whisper '{WHISPER_MODEL}')...")
+        resultado_tx = transcribir_desde_captura(captura)
+        texto_diarizado = (resultado_tx.get("diarizada") or "").strip()
+        texto_plano = (resultado_tx.get("plana") or "").strip()
+        texto_reunion = texto_diarizado or texto_plano
 
         if not texto_reunion or texto_reunion.startswith("Error"):
             motivo = texto_reunion or "Transcripción vacía"
             print(f"⚠️ Transcripción inválida: {motivo}")
-            guardar_fallo(motivo=motivo, archivo_audio=archivo_audio)
+            guardar_fallo(motivo=motivo, archivo_audio=archivo_mix)
             conservado = True
             return
 
-        if len(texto_reunion.strip()) < 20:
-            print("⚠️ Transcripción demasiado corta; se conserva el audio por si quieres reintentar.")
+        if len(texto_reunion) < 20:
+            print("⚠️ Transcripción demasiado corta; se conserva el audio.")
             guardar_fallo(
                 motivo="Transcripción demasiado corta",
-                archivo_audio=archivo_audio,
+                archivo_audio=archivo_mix,
                 transcripcion=texto_reunion,
             )
             conservado = True
             return
 
-        print(f"📝 Transcripción ({len(texto_reunion)} chars): {texto_reunion[:200]}...")
+        preview = texto_reunion.replace("\n", " | ")[:220]
+        print(f"📝 Diarizada ({resultado_tx.get('modo')}): {preview}...")
 
-        print("🤖 Despertando a los agentes de CrewAI (Ollama)...")
+        print("🤖 Analizando con agentes…")
         resultado = ejecutar_flujo_agentes(texto_reunion)
 
         if not resultado or not isinstance(resultado, dict):
             print("❌ Los agentes no retornaron un diccionario válido.")
             guardar_fallo(
                 motivo="Agentes sin resultado válido",
-                archivo_audio=archivo_audio,
+                archivo_audio=archivo_mix,
                 transcripcion=texto_reunion,
             )
             conservado = True
@@ -89,22 +99,30 @@ def procesar_flujo_completo(archivo_audio: str) -> None:
         tareas = resultado.get("tareas") or []
         archivos_menc = resultado.get("archivos_mencionados") or []
 
-        # Audio manda; si no hay proyecto claro → pregunta por consola
         nombre_proyecto = resolver_proyecto_interactivo(texto_reunion, nombre_proyecto)
+        tareas = confirmar_responsables_consola(tareas if isinstance(tareas, list) else [])
+        bloque_resp = resumen_tareas_markdown(tareas)
+        if bloque_resp.strip() and "## Responsables por tarea" not in contenido_markdown:
+            contenido_markdown = contenido_markdown.rstrip() + "\n\n" + bloque_resp
 
         carpeta = guardar_sesion(
             nombre_proyecto=nombre_proyecto,
             nombre_rama=nombre_rama,
-            transcripcion=texto_reunion,
+            transcripcion=texto_plano or texto_reunion,
             markdown=contenido_markdown,
-            tareas=tareas if isinstance(tareas, list) else [str(tareas)],
-            archivo_audio=archivo_audio,
-            meta_extra={"archivos_mencionados": archivos_menc},
+            tareas=tareas,
+            archivo_audio=archivo_mix,
+            meta_extra={
+                "archivos_mencionados": archivos_menc,
+                "transcripcion_diarizada": texto_diarizado,
+                "diarizacion_modo": resultado_tx.get("modo"),
+                "segmentos": resultado_tx.get("segmentos") or [],
+            },
         )
-        conservado = True  # ya hay copia en la sesión
+        conservado = True
 
         if AUTO_GIT_COMMIT:
-            print(f"🚀 Preparando Git en el proyecto destino (propuesta: {nombre_rama})...")
+            print(f"🚀 Preparando Git (propuesta: {nombre_rama})...")
             aplicar_cambios_locales(
                 nombre_proyecto=nombre_proyecto,
                 nombre_rama=nombre_rama,
@@ -112,25 +130,24 @@ def procesar_flujo_completo(archivo_audio: str) -> None:
                 carpeta_sesion=carpeta,
             )
         else:
-            print("ℹ️ AUTO_GIT_COMMIT desactivado — revisa el prompt en docs/.")
+            print("ℹ️ AUTO_GIT_COMMIT desactivado.")
 
-        print("✨ Flujo completado para esta sesión.")
-        print(f"👉 Prompt listo: {carpeta / 'prompt_cursor.md'}\n")
+        print("✨ Flujo completado.")
+        print(f"👉 Prompt: {carpeta / 'prompt_cursor.md'}\n")
 
     except Exception as e:
         print(f"❌ Error crítico en el pipeline: {e}")
         if not conservado:
             try:
-                guardar_fallo(motivo=f"Error crítico: {e}", archivo_audio=archivo_audio)
+                guardar_fallo(motivo=f"Error crítico: {e}", archivo_audio=archivo_mix)
                 conservado = True
             except Exception:
                 pass
     finally:
-        # Solo borra el temporal si ya quedó copia en docs/ (éxito o _fallidos)
         if conservado:
-            _eliminar_temporal(archivo_audio)
-        elif archivo_audio and os.path.exists(archivo_audio):
-            print(f"⚠️ Se conserva el audio temporal para reintento: {archivo_audio}\n")
+            _eliminar_temporales(captura)
+        elif archivo_mix and os.path.exists(archivo_mix):
+            print(f"⚠️ Se conserva el audio temporal: {archivo_mix}\n")
 
 
 def _iniciar_grabacion() -> None:
@@ -140,17 +157,17 @@ def _iniciar_grabacion() -> None:
 
 
 def _encolar_proceso_tras_detener() -> None:
-    global _grabando, _procesando, _pending_audio
+    global _grabando, _procesando, _pending_captura
 
-    archivo = detener_grabacion_manual()
+    captura = detener_grabacion_manual()
     _grabando = False
 
-    if not archivo:
+    if not captura or not captura.get("mix"):
         print("⚠️ No se generó audio válido.")
         _procesando = False
         return
 
-    _pending_audio = archivo
+    _pending_captura = captura
     print("⏳ Presiona Enter para continuar el análisis…")
 
 
@@ -158,7 +175,7 @@ def alternar_grabacion() -> None:
     global _grabando, _procesando
 
     with _estado_lock:
-        if _procesando or _pending_audio:
+        if _procesando or _pending_captura:
             print("⚠️ Todavía hay una sesión en curso. Espera un momento.")
             return
 
@@ -189,17 +206,17 @@ def _mostrar_proyectos() -> None:
 
 
 def _consumir_pendiente() -> bool:
-    global _pending_audio, _procesando
+    global _pending_captura, _procesando
 
     with _estado_lock:
-        archivo = _pending_audio
-        _pending_audio = None
+        captura = _pending_captura
+        _pending_captura = None
 
-    if not archivo:
+    if not captura:
         return False
 
     try:
-        procesar_flujo_completo(archivo)
+        procesar_flujo_completo(captura)
     finally:
         _procesando = False
     return True
@@ -219,7 +236,7 @@ def menu_consola() -> None:
     print("  docs                     — abrir carpeta docs/")
     print("  salir                    — cerrar")
     print(f"Hotkey: {HOTKEY.upper()}  (alternar grabar/parar)")
-    print(f"Whisper: {WHISPER_MODEL} | Este repo permanece en main.")
+    print(f"Whisper: {WHISPER_MODEL} | Diarización: mic=tú / sistema=remotos")
     print("=======================================================")
     _mostrar_proyectos()
 
@@ -240,7 +257,7 @@ def menu_consola() -> None:
 
         if comando in ("grabar", "start", "rec"):
             with _estado_lock:
-                if _procesando or _pending_audio:
+                if _procesando or _pending_captura:
                     print("⚠️ Espera a que termine el procesamiento.")
                 elif _grabando or esta_grabando():
                     print("⚠️ Ya estás grabando.")
@@ -249,7 +266,7 @@ def menu_consola() -> None:
 
         elif comando in ("parar", "stop", ""):
             with _estado_lock:
-                if _procesando or _pending_audio:
+                if _procesando or _pending_captura:
                     if comando == "":
                         continue
                     print("⚠️ Ya se está procesando.")

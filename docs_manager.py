@@ -51,6 +51,10 @@ def guardar_sesion(
     carpeta = crear_sesion_docs(nombre_proyecto)
 
     (carpeta / "transcripcion.txt").write_text(transcripcion.strip() + "\n", encoding="utf-8")
+    if meta_extra and meta_extra.get("transcripcion_diarizada"):
+        (carpeta / "transcripcion_diarizada.txt").write_text(
+            str(meta_extra["transcripcion_diarizada"]).strip() + "\n", encoding="utf-8"
+        )
     (carpeta / "prompt_cursor.md").write_text(markdown.strip() + "\n", encoding="utf-8")
 
     audio_nombre = _copiar_audio(carpeta, archivo_audio)
@@ -79,6 +83,8 @@ def guardar_sesion(
     print(f"📂 Sesión guardada en: {carpeta}")
     print(f"   • {carpeta / 'prompt_cursor.md'}")
     print(f"   • {carpeta / 'transcripcion.txt'}")
+    if (carpeta / "transcripcion_diarizada.txt").exists():
+        print(f"   • {carpeta / 'transcripcion_diarizada.txt'}")
     if audio_nombre:
         print(f"   • {carpeta / audio_nombre}")
     print(f"   • {carpeta / 'meta.json'}")

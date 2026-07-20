@@ -29,6 +29,24 @@ HOTKEY = "ctrl+shift+r"
 # Si True, tras confirmar Y/N, crea rama + commit en el repo de PRODUCTO (nunca aquí)
 AUTO_GIT_COMMIT = True
 
+# Quién eres tú en las reuniones (canal micrófono en la diarización)
+USUARIO_LOCAL = "Felipe"
+
+# Personas frecuentes. Si usas pyannote, Remoto_N puede mapearse a estos nombres (en orden).
+PARTICIPANTES_CONOCIDOS: list[str] = [
+    "Felipe",
+]
+
+# Si True, pregunta por consola el responsable de cada tarea sin dueño claro
+CONFIRMAR_RESPONSABLES = True
+
+# Token Hugging Face para diarización fina del canal remoto (opcional).
+# 1) Crea token en https://huggingface.co/settings/tokens
+# 2) Acepta condiciones de: https://huggingface.co/pyannote/speaker-diarization-3.1
+# 3) pip install pyannote.audio
+# 4) Pon el token aquí o en la variable de entorno HF_TOKEN
+HF_TOKEN = ""
+
 # Clave del orquestador: solo docs locales, sin ramas Git en este repo
 CLAVE_ORQUESTADOR = "automatizar_flujo_trabajo"
 

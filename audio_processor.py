@@ -418,17 +418,35 @@ def _unir_chunks(cola: queue.Queue) -> tuple[np.ndarray | None, int | None]:
     return np.concatenate(chunks), rate
 
 
-def detener_grabacion_manual() -> str:
+def _guardar_wav_mono(audio: np.ndarray, ruta: str) -> None:
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak > 0:
+        audio = audio / peak * 0.95
+    audio_int16 = (audio * 32767.0).astype(np.int16)
+    with wave.open(ruta, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(TARGET_RATE)
+        wf.writeframes(audio_int16.tobytes())
+
+
+def detener_grabacion_manual() -> dict:
+    """
+    Detiene y guarda:
+      - mix  (mezcla para respaldo)
+      - mic  (solo tu voz)
+      - sys  (solo audio del PC / reunión)
+    Retorna dict con rutas + arrays (para diarización sin releer disco).
+    """
     global grabando, hilo_grabacion
     if not grabando:
-        return ""
+        return {}
 
     print("🛑 Deteniendo…")
     grabando = False
     if hilo_grabacion:
         hilo_grabacion.join(timeout=15)
         hilo_grabacion = None
-    # Dejar que los últimos callbacks encolen
     time.sleep(0.15)
 
     audio_mic_raw, rate_mic = _unir_chunks(q_mic)
@@ -436,50 +454,62 @@ def detener_grabacion_manual() -> str:
 
     if audio_mic_raw is None and audio_sys_raw is None:
         print("❌ Sin audio capturado.")
-        return ""
+        return {}
 
-    partes = []
-    if audio_mic_raw is not None:
-        mic = _resample_mono(audio_mic_raw, rate_mic or TARGET_RATE)
-        partes.append(("mic", mic))
+    mic = (
+        _resample_mono(audio_mic_raw, rate_mic or TARGET_RATE)
+        if audio_mic_raw is not None
+        else None
+    )
+    sys_a = (
+        _resample_mono(audio_sys_raw, rate_sys or TARGET_RATE)
+        if audio_sys_raw is not None
+        else None
+    )
 
-    if audio_sys_raw is not None:
-        sys_a = _resample_mono(audio_sys_raw, rate_sys or TARGET_RATE)
-        partes.append(("sys", sys_a))
-
-    if len(partes) == 1:
-        audio_final = partes[0][1]
-    else:
-        por_nombre = {nombre: data for nombre, data in partes}
-        mic = por_nombre["mic"]
-        sys_a = por_nombre["sys"]
+    if mic is not None and sys_a is not None:
         max_len = max(len(mic), len(sys_a))
         if len(mic) < max_len:
             mic = np.pad(mic, (0, max_len - len(mic)))
         if len(sys_a) < max_len:
             sys_a = np.pad(sys_a, (0, max_len - len(sys_a)))
         audio_final = (mic * 1.0) + (sys_a * 0.85)
+    elif mic is not None:
+        audio_final = mic
+    else:
+        audio_final = sys_a
 
     peak = float(np.max(np.abs(audio_final))) if audio_final.size else 0.0
-    if peak > 0:
-        audio_final = audio_final / peak * 0.95
-    else:
+    if peak <= 0:
         print("❌ Audio en silencio.")
-        return ""
+        return {}
 
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    ruta_absoluta = str((TEMP_DIR / FILENAME).resolve())
-    audio_int16 = (audio_final * 32767.0).astype(np.int16)
+    ruta_mix = str((TEMP_DIR / FILENAME).resolve())
+    ruta_mic = str((TEMP_DIR / "mic_reunion.wav").resolve())
+    ruta_sys = str((TEMP_DIR / "sys_reunion.wav").resolve())
 
-    with wave.open(ruta_absoluta, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(TARGET_RATE)
-        wf.writeframes(audio_int16.tobytes())
+    _guardar_wav_mono(audio_final.copy(), ruta_mix)
+    if mic is not None and float(np.max(np.abs(mic))) > 0.001:
+        _guardar_wav_mono(mic.copy(), ruta_mic)
+    else:
+        ruta_mic = ""
+        mic = None
+    if sys_a is not None and float(np.max(np.abs(sys_a))) > 0.001:
+        _guardar_wav_mono(sys_a.copy(), ruta_sys)
+    else:
+        ruta_sys = ""
+        sys_a = None
 
     dur = len(audio_final) / TARGET_RATE
     print(f"✅ Grabación lista ({dur:.1f}s)")
-    return ruta_absoluta
+    return {
+        "mix": ruta_mix,
+        "mic": ruta_mic or None,
+        "sys": ruta_sys or None,
+        "audio_mic": mic,
+        "audio_sys": sys_a,
+    }
 
 
 def _cargar_whisper():

@@ -7,21 +7,21 @@ import re
 
 from crewai import Agent, Task, Crew, Process
 
-from config import OLLAMA_LLM, proyectos_conocidos_para_prompt
+from config import OLLAMA_LLM, PARTICIPANTES_CONOCIDOS, USUARIO_LOCAL, proyectos_conocidos_para_prompt
+from task_ownership import normalizar_tareas
 
 ollama_llm = OLLAMA_LLM
 
 analista_pm = Agent(
     role="Product Manager Técnico",
     goal=(
-        "Analizar la transcripción de la reunión, identificar a qué proyecto pertenece, "
-        "extraer las tareas de desarrollo y definir el nombre descriptivo de la feature."
+        "Analizar la transcripción, identificar proyecto, rama, tareas y "
+        "quién es responsable de cada compromiso."
     ),
     backstory=(
-        "Experto en gestión de proyectos de software y requerimientos técnicos. "
-        "Asocia el contexto solo con proyectos explícitamente mencionados "
-        "(VIGO, pipelines u otros nombrados) y corrige errores fonéticos evidentes "
-        "(feature/barra, etc.)."
+        "Experto en gestión de proyectos. Extrae dueños de tarea solo cuando "
+        "el audio lo indica (nombres, 'yo me encargo', 'tú haz…'). "
+        "No inventa responsables."
     ),
     llm=ollama_llm,
     verbose=False,
@@ -30,8 +30,8 @@ analista_pm = Agent(
 desarrollador_ia = Agent(
     role="Ingeniero de Software Senior",
     goal=(
-        "Redactar prompts accionables para Cursor: pasos concretos, criterios de "
-        "aceptación y restricciones claras sin inventar stack ni rutas."
+        "Redactar prompts accionables para Cursor con tareas, responsables "
+        "y criterios de aceptación, sin inventar stack ni rutas."
     ),
     backstory=(
         "Desarrollador Full-Stack senior. Escribe instrucciones imperativas, "
@@ -71,8 +71,14 @@ def _normalizar_rama(rama: str) -> str:
     return rama[:80] or "feature/tareas-reunion"
 
 
+def _participantes_para_prompt() -> str:
+    nombres = list(dict.fromkeys([USUARIO_LOCAL, *PARTICIPANTES_CONOCIDOS]))
+    return ", ".join(nombres)
+
+
 def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
     proyectos = proyectos_conocidos_para_prompt()
+    participantes = _participantes_para_prompt()
 
     tarea_analisis = Task(
         description=(
@@ -80,27 +86,35 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
             f"'''\n{transcripcion_texto}\n'''\n\n"
             "Proyectos conocidos:\n"
             f"{proyectos}\n\n"
+            f"Participantes conocidos (el usuario local / canal mic es '{USUARIO_LOCAL}'): {participantes}\n\n"
+            "La transcripción puede venir DIARIZADA con etiquetas:\n"
+            f"  [{USUARIO_LOCAL} mm:ss] … → habló el usuario local (micrófono)\n"
+            "  [Remoto mm:ss] … → habló alguien de la reunión (audio del PC)\n"
+            "  [Remoto_N mm:ss] o un nombre → hablante remoto separado\n\n"
             "Instrucciones:\n"
             "1. Identifica el proyecto SOLO si se nombra de forma explícita. "
-            "Claves válidas: 'vigo_web', 'vigo_api', 'pipelines' o 'General'.\n"
-            "   - VIGO / DET_MINCO / PCE Web → 'vigo_web'\n"
-            "   - API/backend VIGO / PCM → 'vigo_api'\n"
-            "   - pipelines / COMMON_pipelines → 'pipelines'\n"
-            "   - Proyecto nuevo o poco claro → 'General'\n"
-            "   - NUNCA asumas un proyecto mapeado si no se nombró.\n"
+            "Claves: 'vigo_web', 'vigo_api', 'pipelines' o 'General'.\n"
             "2. Diseña una rama Git corta: 'feature/nombre-del-cambio'. "
-            "Si el audio suena a 'FUTURE' o 'feature, barra', interpreta 'feature/...'.\n"
-            "3. Extrae tareas literales (compromisos acordados).\n"
-            "4. Si mencionan archivos, componentes, pantallas o módulos, inclúyelos "
-            "tal cual en las tareas (no inventes rutas).\n"
-            "REGLA CRÍTICA: No deduzcas lenguajes, frameworks, bases de datos ni rutas "
-            "de API si no se mencionaron explícitamente.\n\n"
-            "Devuelve ÚNICAMENTE un objeto JSON válido con las llaves: "
-            "'proyecto', 'rama', 'tareas' (array de strings) y "
-            "'archivos_mencionados' (array de strings; vacío si no hubo)."
+            "Si suena a 'FUTURE' o 'feature, barra', interpreta 'feature/...'.\n"
+            "3. Extrae compromisos como lista de OBJETOS. Cada objeto tiene:\n"
+            "   - 'descripcion': qué hay que hacer\n"
+            "   - 'responsable': nombre O null\n"
+            "   - 'evidencia': frase corta que justifica el responsable\n"
+            "4. Cómo inferir responsable (prioridad):\n"
+            f"   a) Si el compromiso lo declara [{USUARIO_LOCAL}] "
+            f"('yo me encargo', 'lo implemento') → '{USUARIO_LOCAL}'\n"
+            "   b) Si un [Remoto] pide explícitamente a alguien por nombre → ese nombre\n"
+            f"   c) Si un [Remoto] dice 'tú haz X' dirigiéndose al local → '{USUARIO_LOCAL}'\n"
+            "   d) Si un [Remoto_N]/Nombre] se autoasigna → ese speaker\n"
+            "   e) Sin pista clara → responsable null\n"
+            "5. archivos_mencionados (array) si citan archivos/componentes.\n"
+            "REGLA CRÍTICA: No inventes stack, rutas ni responsables.\n\n"
+            "Devuelve ÚNICAMENTE JSON con: "
+            "'proyecto', 'rama', 'tareas' (array de objetos), 'archivos_mencionados'."
         ),
         expected_output=(
-            "JSON puro con llaves proyecto, rama, tareas, archivos_mencionados."
+            "JSON puro con proyecto, rama, tareas[{descripcion,responsable,evidencia}], "
+            "archivos_mencionados."
         ),
         agent=analista_pm,
     )
@@ -111,20 +125,18 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
             "Estructura obligatoria:\n"
             "- # Prompts de Desarrollo para Cursor (Proyecto: [Nombre])\n"
             "- ## 1. Contexto del Cambio (agnóstico a la tecnología)\n"
-            "- ## 2. Lista de tareas\n"
+            "- ## 2. Lista de tareas (con responsable: Nombre — tarea)\n"
             "- ## 3. Criterios de aceptación\n"
             "- ## 4. Prompt listo para Cursor (Copiar y Pegar)\n\n"
-            "Reglas del prompt (sección 4):\n"
-            "- Tono imperativo, técnico, pasos numerados.\n"
+            "Reglas:\n"
+            "- En la sección 2, cada ítem debe verse como: "
+            "`- **Responsable:** … — descripción` "
+            "(usa 'sin asignar' si responsable era null).\n"
+            "- El prompt (sección 4) debe ser imperativo y, si hay tareas para "
+            f"'{USUARIO_LOCAL}', enfócate en esas; menciona las de otros como contexto/"
+            "dependencias.\n"
             "- Debe empezar pidiendo revisar el workspace actual antes de codear.\n"
-            "- Si el PM listó archivos/componentes mencionados, cítalos y pide "
-            "localizarlos en el repo (sin inventar rutas absolutas).\n"
-            "- Incluye criterios de aceptación verificables (qué debe pasar / qué no).\n"
-            "- PROHIBIDO inventar tecnologías, carpetas o endpoints no presentes "
-            "en las tareas del PM.\n"
-            "- Si no hubo stack en la reunión, incluye: "
-            "'Lee el contexto de mi espacio de trabajo actual para determinar el "
-            "lenguaje y framework utilizado...'\n"
+            "- PROHIBIDO inventar tecnologías o rutas no presentes en las tareas del PM.\n"
             "- Termina con: 'No inventes archivos ni rutas; si falta contexto, "
             "pregunta antes de editar.'"
         ),
@@ -139,7 +151,7 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
         process=Process.sequential,
     )
 
-    print("🤖 Iniciando el análisis con los agentes locales (Qwen)...")
+    print("🤖 Analizando reunión (proyecto, tareas y responsables)...")
     resultado_final = crew.kickoff()
 
     proyecto = "General"
@@ -152,11 +164,7 @@ def ejecutar_flujo_agentes(transcripcion_texto: str) -> dict:
         datos = _extraer_json(str(raw_output))
         proyecto = str(datos.get("proyecto") or proyecto)
         rama = _normalizar_rama(str(datos.get("rama") or rama))
-        tareas_raw = datos.get("tareas") or []
-        if isinstance(tareas_raw, list):
-            tareas = [str(t) for t in tareas_raw]
-        elif isinstance(tareas_raw, str):
-            tareas = [tareas_raw]
+        tareas = normalizar_tareas(datos.get("tareas"))
         arch_raw = datos.get("archivos_mencionados") or []
         if isinstance(arch_raw, list):
             archivos_mencionados = [str(a) for a in arch_raw]
