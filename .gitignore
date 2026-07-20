@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Audio temporal y modelos
+.tmp_audio/
+*.wav
+*.mp3
+
+# Salidas locales (descomenta si no quieres versionar minutas)
+# docs/
+
+# Whisper / torch caches locales
+.cache/
