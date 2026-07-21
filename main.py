@@ -23,6 +23,7 @@ from orquestador.audio_processor import (
 from orquestador.diarization import transcribir_desde_captura
 from orquestador.docs_manager import guardar_fallo, guardar_sesion
 from orquestador.git_automation import aplicar_cambios_locales
+from orquestador.glossary import proponer_y_aprender
 from orquestador.hotkeys import detener_hotkey, iniciar_hotkey
 from orquestador.project_input import resolver_proyecto_interactivo
 from orquestador.project_manager import ejecutar_flujo_agentes
@@ -142,6 +143,14 @@ def procesar_flujo_completo(captura: dict) -> None:
             },
         )
         conservado = True
+
+        try:
+            proponer_y_aprender(
+                texto_reunion,
+                meta={"proyecto": nombre_proyecto, "rama": nombre_rama},
+            )
+        except Exception as e_gl:
+            print(f"ℹ️ Glosario: se omitió el aprendizaje ({e_gl})")
 
         if AUTO_GIT_COMMIT:
             print(f"🚀 Preparando Git (propuesta: {nombre_rama})...")

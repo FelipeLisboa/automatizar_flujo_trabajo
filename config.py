@@ -81,6 +81,11 @@ if USUARIO_LOCAL and USUARIO_LOCAL not in PARTICIPANTES_CONOCIDOS:
 
 CONFIRMAR_RESPONSABLES = _env_bool("CONFIRMAR_RESPONSABLES", True)
 
+# Glosario técnico aprendible (.glossary/terms.json)
+USAR_GLOSARIO = _env_bool("USAR_GLOSARIO", True)
+GLOSARIO_CONFIRMAR = _env_bool("GLOSARIO_CONFIRMAR", True)
+GLOSARIO_MAX_PROMPT_TERMS = _env_int("GLOSARIO_MAX_PROMPT_TERMS", 40)
+
 CLAVE_ORQUESTADOR = "automatizar_flujo_trabajo"
 
 

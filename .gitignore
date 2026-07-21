@@ -13,8 +13,9 @@ venv/
 # Salidas locales (descomenta si no quieres versionar minutas)
 docs/
 
-# Biblioteca de perfiles
+# Biblioteca de perfiles y vocabulario local
 .voice_profiles
+.glossary/
 
 # Whisper / torch caches locales
 .cache/

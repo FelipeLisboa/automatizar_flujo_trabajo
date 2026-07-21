@@ -44,6 +44,7 @@ automatizar_flujo_trabajo/
 │   ├── audio_processor.py
 │   ├── diarization.py
 │   ├── speaker_registry.py
+│   ├── glossary.py
 │   ├── task_ownership.py
 │   ├── project_input.py
 │   ├── project_manager.py
@@ -53,6 +54,7 @@ automatizar_flujo_trabajo/
 │
 ├── docs/                   ← salidas de cada reunión
 ├── .voice_profiles/        ← biblioteca de voces (local)
+├── .glossary/              ← vocabulario técnico aprendido (local)
 ├── .tmp_audio/             ← WAV temporales
 └── .venv/                  ← entorno virtual
 ```
@@ -65,6 +67,7 @@ automatizar_flujo_trabajo/
 | `main.py` | Casi nunca | Punto de entrada |
 | `orquestador/` | Solo si desarrollas | Lógica interna |
 | `docs/` | Consultas | Resultados de reuniones |
+| `.glossary/` | Consultas / editas JSON | Términos técnicos aprendidos |
 
 ---
 
@@ -196,6 +199,9 @@ copy .env.example .env
 | `VOICE_MATCH_THRESHOLD` | `0.72` | Umbral para sugerir |
 | `VOICE_AUTO_THRESHOLD` | `0.78` | Umbral para auto-asignar |
 | `USE_PYANNOTE` | `false` | Separar varias voces remotas (requiere `pyannote.audio` + token) |
+| `USAR_GLOSARIO` | `true` | Biblioteca `.glossary/` en Whisper + correcciones |
+| `GLOSARIO_CONFIRMAR` | `true` | Confirmar términos nuevos en consola tras la reunión |
+| `GLOSARIO_MAX_PROMPT_TERMS` | `40` | Máx. términos inyectados en el prompt de Whisper |
 | `PROYECTO_<clave>` | `PROYECTO_mi_app=C:\ruta\repo` | **Cualquier** proyecto mapeado |
 | `ALIAS_PROYECTOS` | `front=mi_front,api=mi_api` | Sinónimos opcionales (coma) |
 | `HF_TOKEN` | `hf_...` | Token Hugging Face (secreto) |
@@ -228,6 +234,18 @@ $env:HF_TOKEN = "hf_..."
 1. Primera vez → escribes el nombre de `Remoto_N` → se crea perfil en `.voice_profiles/`.  
 2. Próximas → si la voz coincide (≥ `VOICE_AUTO_THRESHOLD`) se asigna **sola**.  
 3. Persona nueva → pregunta → nuevo perfil. Se puede repetir sin límite.
+
+### Glosario técnico (active learning)
+
+Igual que las voces, pero para **palabras del dominio** (productos, “feature”, malas escuchas, etc.):
+
+1. Tras cada reunión el orquestador propone candidatos (heurística + Ollama si está disponible).  
+2. Consola: **Enter** = guardar, **n** = saltar, o escribe `mal → bien`.  
+3. Los términos viven en `.glossary/terms.json` y se usan en:
+   - el `initial_prompt` de Whisper (mejora el reconocimiento),
+   - correcciones automáticas después de transcribir.
+
+Flags: `USAR_GLOSARIO`, `GLOSARIO_CONFIRMAR`, `GLOSARIO_MAX_PROMPT_TERMS` en `.env`.
 
 ---
 

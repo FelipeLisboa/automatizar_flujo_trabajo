@@ -23,7 +23,6 @@ import numpy as np
 from config import (
     USUARIO_LOCAL,
     USE_PYANNOTE,
-    WHISPER_INITIAL_PROMPT,
     WHISPER_MODEL,
 )
 
@@ -41,6 +40,7 @@ def _overlap(a0: float, a1: float, b0: float, b1: float) -> float:
 def _transcribir_segmentos(audio: np.ndarray, model) -> list[dict]:
     """Whisper → lista de {start, end, text}."""
     from orquestador.audio_processor import TARGET_RATE, _corregir_transcripcion
+    from orquestador.glossary import prompt_whisper_con_glosario
 
     if audio is None or audio.size == 0 or _peak(audio) < 0.001:
         return []
@@ -49,7 +49,7 @@ def _transcribir_segmentos(audio: np.ndarray, model) -> list[dict]:
         np.ascontiguousarray(audio, dtype=np.float32),
         fp16=False,
         language="es",
-        initial_prompt=WHISPER_INITIAL_PROMPT,
+        initial_prompt=prompt_whisper_con_glosario(),
         condition_on_previous_text=False,
         word_timestamps=False,
     )

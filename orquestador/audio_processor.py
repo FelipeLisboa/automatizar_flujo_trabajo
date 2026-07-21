@@ -26,7 +26,7 @@ except ImportError as e:
         "  python -m pip install PyAudioWPatch scipy"
     ) from e
 
-from config import RECORDING_HEARTBEAT_SEC, TEMP_DIR, WHISPER_INITIAL_PROMPT, WHISPER_MODEL
+from config import RECORDING_HEARTBEAT_SEC, TEMP_DIR, WHISPER_MODEL
 
 try:
     from config import HOTKEY as _HOTKEY
@@ -560,11 +560,13 @@ def transcribir_local(archivo_audio: str) -> str:
             return "Error: El archivo de audio está vacío."
 
         model = _cargar_whisper()
+        from orquestador.glossary import prompt_whisper_con_glosario
+
         resultado = model.transcribe(
             audio,
             fp16=False,
             language="es",
-            initial_prompt=WHISPER_INITIAL_PROMPT,
+            initial_prompt=prompt_whisper_con_glosario(),
             condition_on_previous_text=False,
         )
         texto = (resultado.get("text") or "").strip()
@@ -577,6 +579,7 @@ def _corregir_transcripcion(texto: str) -> str:
     """Ajustes ligeros de fonética / nombres de producto + anti-eco del initial_prompt."""
     import re
     from config import CORRECCIONES_TRANSCRIPCION, WHISPER_INITIAL_PROMPT
+    from orquestador.glossary import aplicar_correcciones, prompt_whisper_con_glosario
 
     out = (texto or "").strip()
     if not out:
@@ -590,8 +593,13 @@ def _corregir_transcripcion(texto: str) -> str:
     ) and len(out.split()) <= 12:
         return ""
 
-    prompt = (WHISPER_INITIAL_PROMPT or "").strip()
-    if prompt:
+    # Comparar contra prompt base y prompt con glosario
+    for prompt in (
+        (WHISPER_INITIAL_PROMPT or "").strip(),
+        prompt_whisper_con_glosario().strip(),
+    ):
+        if not prompt:
+            continue
         pl = prompt.lower()
         ol = out.lower()
         if ol == pl or (pl in ol and len(out) <= len(prompt) + 15):
@@ -604,6 +612,7 @@ def _corregir_transcripcion(texto: str) -> str:
 
     for patron, reemplazo in CORRECCIONES_TRANSCRIPCION:
         out = re.sub(patron, reemplazo, out, flags=re.IGNORECASE)
+    out = aplicar_correcciones(out)
     return out.strip()
 
 
