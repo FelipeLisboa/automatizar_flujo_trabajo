@@ -11,7 +11,10 @@ venv/
 *.mp3
 
 # Salidas locales (descomenta si no quieres versionar minutas)
-# docs/
+docs/
+
+# Biblioteca de perfiles
+.voice_profiles
 
 # Whisper / torch caches locales
 .cache/
